@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="description" content="Seamless QR-Based Cafe Ordering - Browse delicious coffee, meals and desserts." />
+  <meta name="theme-color" content="#FF7A00" />
+  <title>Aroma Artisan Cafe - Menu & Ordering</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- Supabase Client CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <!-- Header / Top Bar -->
+  <header class="topbar">
+    <div class="container topbar-content">
+      <div class="brand-wrapper">
+        <div class="brand-icon">☕</div>
+        <div>
+          <div class="brand-name" id="cafeBrandName">Aroma Artisan Cafe</div>
+          <div class="table-badge" id="tableBadge">Table #...</div>
+        </div>
+      </div>
+      <button id="themeToggleBtn" class="theme-toggle-btn" aria-label="Toggle Dark/Light Mode">🌙</button>
+    </div>
+  </header>
+
+  <!-- Main Content Area -->
+  <main class="container">
+    <!-- Search Section -->
+    <section class="search-section">
+      <div class="search-input-wrapper">
+        <span class="search-icon">🔍</span>
+        <input 
+          type="text" 
+          id="searchInput" 
+          class="search-input" 
+          placeholder="Search for coffee, sourdough, desserts..." 
+          autocomplete="off"
+        />
+      </div>
+    </section>
+
+    <!-- Category Pill Filter -->
+    <nav class="category-nav" id="categoryNav" aria-label="Menu Categories">
+      <button class="category-pill active" data-category="ALL">All Items</button>
+      <!-- Dynamic categories injected by app.js -->
+    </nav>
+
+    <!-- Dynamic Menu Grid Container -->
+    <div id="menuContainer" class="menu-container">
+      <!-- Menu categories & cards injected dynamically -->
+      <div style="text-align: center; padding: 40px; color: var(--color-text-muted);">
+        Loading fresh menu...
+      </div>
+    </div>
+  </main>
+
+  <!-- Floating Sticky Cart Action Button -->
+  <button id="cartFab" class="cart-fab hidden" aria-label="View Cart">
+    <span>🛒 View Order</span>
+    <span class="cart-fab-badge" id="cartFabCount">0</span>
+    <span>· ₹<span id="cartFabTotal">0</span></span>
+  </button>
+
+  <!-- Cart Modal / Slide-up Drawer -->
+  <div id="cartBackdrop" class="cart-backdrop hidden"></div>
+  <div id="cartDrawer" class="cart-drawer hidden">
+    <div class="cart-drawer-header">
+      <div>
+        <h2 class="cart-drawer-title">Your Order</h2>
+        <p style="font-size: 0.82rem; color: var(--color-text-secondary);" id="cartDrawerSubtitle">Table #...</p>
+      </div>
+      <button id="closeCartBtn" class="close-btn" aria-label="Close Cart">✕</button>
+    </div>
+
+    <!-- Items in cart -->
+    <div id="cartItemsList" class="cart-items-list">
+      <!-- Injected by app.js -->
+    </div>
+
+    <!-- Footer with billing and Place Order button -->
+    <div class="cart-footer">
+      <div class="cart-bill-row">
+        <span>Items Subtotal</span>
+        <span>₹<span id="billSubtotal">0</span></span>
+      </div>
+      <div class="cart-bill-row">
+        <span>Taxes & Service</span>
+        <span>₹0 (Included)</span>
+      </div>
+      <div class="cart-bill-row cart-bill-total">
+        <span>Total Payable</span>
+        <span>₹<span id="billTotal">0</span></span>
+      </div>
+      <button id="placeOrderBtn" class="place-order-btn">
+        <span>Send to Kitchen</span>
+        <span>🚀</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Toast Notifications -->
+  <div id="toast" class="toast hidden" role="alert"></div>
+
+  <!-- Scripts -->
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

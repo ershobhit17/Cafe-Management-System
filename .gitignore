@@ -1,0 +1,32 @@
+# Flutter & Dart
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/.pub/
+
+# IDE & Editors
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Android Studio / Xcode
+**/android/app/debug
+**/android/app/profile
+**/android/app/release
+**/ios/Flutter/.last_build_id
+.widget_preview/
+
+# Operating System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs & Temporary
+*.log
+*.tmp
+*.class
+*.pyc
