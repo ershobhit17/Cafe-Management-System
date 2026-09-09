@@ -10,7 +10,7 @@ class SupabaseConfig {
   // Demo Fallback identifiers to enable zero-friction offline preview
   static const String demoCafeId = 'a0000000-0000-0000-0000-000000000001';
   static const String demoCafeName = 'Aroma Artisan Cafe';
-  static const String customerWebBaseUrl = 'http://127.0.0.1:5500/customer-web'; // or 'http://localhost:3000' or hosted URL
+  static const String customerWebBaseUrl = 'https://cafe-management-system-nbi5.onrender.com';
 
   static bool get isConfigured {
     return supabaseUrl.isNotEmpty &&
