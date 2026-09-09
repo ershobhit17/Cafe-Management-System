@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
+import '../../services/earnings_service.dart';
 import '../../services/order_service.dart';
 import '../auth/login_screen.dart';
 import '../dashboard/live_orders_screen.dart';
@@ -87,12 +88,16 @@ class _MainNavScreenState extends State<MainNavScreen> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
-        indicatorColor: const Color(0xFFFF7A00).withOpacity(0.2),
+        indicatorColor: const Color(0xFFFF7A00).withValues(alpha: 0.2),
         onDestinationSelected: (idx) {
           if (idx == 4) {
             _showSettingsDialog(context);
           } else {
             setState(() => _currentIndex = idx);
+            if (idx == 3) {
+              final auth = context.read<AuthService>();
+              context.read<EarningsService>().fetchEarnings(auth.currentCafeId, isDemo: auth.isDemoMode);
+            }
           }
         },
         destinations: [

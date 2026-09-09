@@ -20,20 +20,24 @@ class EarningsService extends ChangeNotifier {
   static const _storage = FlutterSecureStorage();
   static const _kShiftResetKey = 'cafe_shift_reset_timestamp';
 
+  RealtimeChannel? _realtimeChannel;
+  Timer? _pollingTimer;
+
   bool _isLoading = false;
   EarningsRange _selectedRange = EarningsRange.today;
   DateTimeRange? _customRange;
   String? _errorMessage;
 
-  // Selected range metrics
+  // Selected range metrics - all initialized to 0
   double _totalRevenue = 0.0;
   double _paidRevenue = 0.0;
   double _pendingRevenue = 0.0;
   int _totalOrders = 0;
+  int _pendingOrdersCount = 0;
   double _averageOrderValue = 0.0;
   List<DailyEarningPoint> _chartPoints = [];
 
-  // Dedicated period metrics (always computed for instant overview)
+  // Dedicated period metrics - all strictly initialized to 0
   double _todayRevenue = 0.0;
   int _todayOrders = 0;
   double _weeklyRevenue = 0.0;
@@ -52,6 +56,7 @@ class EarningsService extends ChangeNotifier {
   double get paidRevenue => _paidRevenue;
   double get pendingRevenue => _pendingRevenue;
   int get totalOrders => _totalOrders;
+  int get pendingOrdersCount => _pendingOrdersCount;
   double get averageOrderValue => _averageOrderValue;
   List<DailyEarningPoint> get chartPoints => _chartPoints;
 
@@ -76,7 +81,6 @@ class EarningsService extends ChangeNotifier {
         final parsed = DateTime.tryParse(saved);
         if (parsed != null) {
           final now = DateTime.now();
-          // Only apply if reset happened today (same calendar day)
           if (parsed.year == now.year && parsed.month == now.month && parsed.day == now.day) {
             _shiftResetTime = parsed;
           } else {
@@ -85,6 +89,34 @@ class EarningsService extends ChangeNotifier {
         }
       }
     } catch (_) {}
+  }
+
+  void subscribeToRealtimeEarnings(String cafeId, {bool isDemo = false}) {
+    if (!SupabaseConfig.isConfigured || isDemo) return;
+
+    _realtimeChannel?.unsubscribe();
+    _realtimeChannel = Supabase.instance.client
+        .channel('earnings_orders_channel_$cafeId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'orders',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'cafe_id',
+            value: cafeId,
+          ),
+          callback: (payload) async {
+            debugPrint('Realtime earnings event received: ${payload.eventType}');
+            await fetchEarnings(cafeId, isDemo: isDemo);
+          },
+        )
+        .subscribe();
+
+    _pollingTimer?.cancel();
+    _pollingTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      fetchEarnings(cafeId, isDemo: isDemo);
+    });
   }
 
   Future<void> resetTodayShift(String cafeId, {bool isDemo = false}) async {
@@ -129,11 +161,11 @@ class EarningsService extends ChangeNotifier {
         rangeStart = _shiftResetTime ?? DateTime(now.year, now.month, now.day);
         break;
       case EarningsRange.thisWeek:
-        // Beginning of current week (Monday)
+        // Beginning of current week (Monday 00:00:00)
         rangeStart = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
         break;
       case EarningsRange.thisMonth:
-        // 1st of current month
+        // 1st of current month (00:00:00)
         rangeStart = DateTime(now.year, now.month, 1);
         break;
       case EarningsRange.custom:
@@ -145,20 +177,18 @@ class EarningsService extends ChangeNotifier {
     }
 
     if (isDemo || !SupabaseConfig.isConfigured) {
-      await Future.delayed(const Duration(milliseconds: 200));
-      _generateDemoEarnings(rangeStart, rangeEnd);
+      await Future.delayed(const Duration(milliseconds: 150));
+      _applyZeroDemoEarnings(rangeStart, rangeEnd);
       _isLoading = false;
       notifyListeners();
       return;
     }
 
     try {
-      // 1. Fetch Month-to-date orders to calculate Today, Week, Month and selected range accurately
       final monthStart = DateTime(now.year, now.month, 1);
       final weekStart = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
       final todayStart = _shiftResetTime ?? DateTime(now.year, now.month, now.day);
 
-      // Query broad enough to cover month and custom range
       final queryStart = rangeStart.isBefore(monthStart) ? rangeStart : monthStart;
       final queryEnd = rangeEnd.isAfter(now) ? rangeEnd : now.add(const Duration(hours: 1));
 
@@ -172,18 +202,22 @@ class EarningsService extends ChangeNotifier {
 
       final List ordersList = res as List;
 
-      // Temporary accumulators
-      double todaySum = 0;
-      int todayCount = 0;
-      double weekSum = 0;
-      int weekCount = 0;
-      double monthSum = 0;
-      int monthCount = 0;
+      // Temporary accumulators - initialized to 0
+      double todayPaidSum = 0.0;
+      int todayPaidCount = 0;
 
-      double selectedSum = 0;
-      double selectedPaid = 0;
-      double selectedPending = 0;
-      int selectedCount = 0;
+      double weekPaidSum = 0.0;
+      int weekPaidCount = 0;
+
+      double monthPaidSum = 0.0;
+      int monthPaidCount = 0;
+
+      double selectedPaidSum = 0.0;
+      int selectedPaidCount = 0;
+
+      double selectedPendingSum = 0.0;
+      int selectedPendingCount = 0;
+
       final Map<String, List<double>> dayMap = {};
 
       for (var row in ordersList) {
@@ -191,59 +225,69 @@ class EarningsService extends ChangeNotifier {
         final status = (row['status'] as String?)?.toLowerCase() ?? 'pending';
         final dt = DateTime.tryParse(row['created_at'] as String)?.toLocal() ?? DateTime.now();
 
-        // Skip cancelled/rejected orders if any
+        // Skip cancelled/rejected orders
         if (status == 'cancelled' || status == 'rejected') continue;
 
-        // Month-to-date accumulation
+        final isPaid = status == 'paid';
+
+        // Month-to-date calculation (ONLY PAID ORDERS COUNT AS REVENUE)
         if (dt.isAfter(monthStart) || dt.isAtSameMomentAs(monthStart)) {
-          monthSum += amt;
-          monthCount++;
+          if (isPaid) {
+            monthPaidSum += amt;
+            monthPaidCount++;
+          }
         }
 
-        // Week-to-date accumulation
+        // Week-to-date calculation (ONLY PAID ORDERS COUNT AS REVENUE)
         if (dt.isAfter(weekStart) || dt.isAtSameMomentAs(weekStart)) {
-          weekSum += amt;
-          weekCount++;
+          if (isPaid) {
+            weekPaidSum += amt;
+            weekPaidCount++;
+          }
         }
 
-        // Today accumulation
+        // Today calculation (ONLY PAID ORDERS COUNT AS REVENUE)
         if (dt.isAfter(todayStart) || dt.isAtSameMomentAs(todayStart)) {
-          todaySum += amt;
-          todayCount++;
+          if (isPaid) {
+            todayPaidSum += amt;
+            todayPaidCount++;
+          }
         }
 
-        // Selected Range accumulation
+        // Selected Range calculation
         final inSelectedRange = (dt.isAfter(rangeStart) || dt.isAtSameMomentAs(rangeStart)) &&
             (dt.isBefore(rangeEnd) || dt.isAtSameMomentAs(rangeEnd));
 
         if (inSelectedRange) {
-          selectedSum += amt;
-          selectedCount++;
-          if (status == 'paid') {
-            selectedPaid += amt;
-          } else {
-            selectedPending += amt;
-          }
+          if (isPaid) {
+            selectedPaidSum += amt;
+            selectedPaidCount++;
 
-          final dateKey = DateFormat('yyyy-MM-dd').format(dt);
-          dayMap.putIfAbsent(dateKey, () => []).add(amt);
+            // Only add to day breakdown chart if PAID
+            final dateKey = DateFormat('yyyy-MM-dd').format(dt);
+            dayMap.putIfAbsent(dateKey, () => []).add(amt);
+          } else {
+            selectedPendingSum += amt;
+            selectedPendingCount++;
+          }
         }
       }
 
-      // Assign period metrics
-      _todayRevenue = todaySum;
-      _todayOrders = todayCount;
-      _weeklyRevenue = weekSum;
-      _weeklyOrders = weekCount;
-      _monthlyRevenue = monthSum;
-      _monthlyOrders = monthCount;
+      // Assign period metrics (strictly paid revenue)
+      _todayRevenue = todayPaidSum;
+      _todayOrders = todayPaidCount;
+      _weeklyRevenue = weekPaidSum;
+      _weeklyOrders = weekPaidCount;
+      _monthlyRevenue = monthPaidSum;
+      _monthlyOrders = monthPaidCount;
 
       // Assign selected range metrics
-      _totalRevenue = selectedSum;
-      _paidRevenue = selectedPaid;
-      _pendingRevenue = selectedPending;
-      _totalOrders = selectedCount;
-      _averageOrderValue = selectedCount > 0 ? selectedSum / selectedCount : 0.0;
+      _totalRevenue = selectedPaidSum;
+      _paidRevenue = selectedPaidSum;
+      _pendingRevenue = selectedPendingSum;
+      _totalOrders = selectedPaidCount;
+      _pendingOrdersCount = selectedPendingCount;
+      _averageOrderValue = selectedPaidCount > 0 ? selectedPaidSum / selectedPaidCount : 0.0;
 
       // Build daily chart points
       _chartPoints = [];
@@ -260,47 +304,34 @@ class EarningsService extends ChangeNotifier {
     } catch (e) {
       debugPrint('Error fetching earnings: $e');
       _errorMessage = 'Cloud sync error: $e';
-      // Do not replace real data with fake numbers on error
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  void _generateDemoEarnings(DateTime start, DateTime end) {
+  void _applyZeroDemoEarnings(DateTime start, DateTime end) {
+    // Zero initialize all counters as requested
+    _todayRevenue = 0.0;
+    _todayOrders = 0;
+    _weeklyRevenue = 0.0;
+    _weeklyOrders = 0;
+    _monthlyRevenue = 0.0;
+    _monthlyOrders = 0;
+
+    _totalRevenue = 0.0;
+    _paidRevenue = 0.0;
+    _pendingRevenue = 0.0;
+    _totalOrders = 0;
+    _pendingOrdersCount = 0;
+    _averageOrderValue = 0.0;
+
     _chartPoints = [];
     final daysCount = end.difference(start).inDays + 1;
-    double sum = 0.0;
-    int orders = 0;
-
-    for (int i = 0; i < (daysCount > 14 ? 14 : daysCount); i++) {
+    final displayLimit = daysCount > 31 ? 31 : daysCount;
+    for (int i = 0; i < displayLimit; i++) {
       final d = start.add(Duration(days: i));
-      final dayRevenue = ((i * 370 + 820) % 2400) + 450.0;
-      final dayOrders = (dayRevenue / 340).round() + 1;
-      sum += dayRevenue;
-      orders += dayOrders;
-      _chartPoints.add(DailyEarningPoint(date: d, amount: dayRevenue, orderCount: dayOrders));
-    }
-
-    _todayRevenue = 3450.0;
-    _todayOrders = 11;
-    _weeklyRevenue = 18900.0;
-    _weeklyOrders = 62;
-    _monthlyRevenue = 74500.0;
-    _monthlyOrders = 245;
-
-    if (_selectedRange == EarningsRange.today) {
-      _totalRevenue = _todayRevenue;
-      _paidRevenue = 2890.0;
-      _pendingRevenue = 560.0;
-      _totalOrders = _todayOrders;
-      _averageOrderValue = 313.6;
-    } else {
-      _totalRevenue = sum;
-      _paidRevenue = sum * 0.85;
-      _pendingRevenue = sum * 0.15;
-      _totalOrders = orders;
-      _averageOrderValue = orders > 0 ? sum / orders : 0.0;
+      _chartPoints.add(DailyEarningPoint(date: d, amount: 0.0, orderCount: 0));
     }
   }
 
@@ -320,5 +351,12 @@ class EarningsService extends ChangeNotifier {
         ],
       );
     }).toList();
+  }
+
+  @override
+  void dispose() {
+    _pollingTimer?.cancel();
+    _realtimeChannel?.unsubscribe();
+    super.dispose();
   }
 }

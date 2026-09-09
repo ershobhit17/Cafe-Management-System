@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../models/order_model.dart';
 import '../../services/auth_service.dart';
+import '../../services/earnings_service.dart';
 import '../../services/order_service.dart';
 
 class LiveOrdersScreen extends StatefulWidget {
@@ -53,13 +54,41 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
     }
   }
 
+  Future<void> _updateOrderStatusAndEarnings(
+    OrderModel order,
+    String newStatus,
+    AuthService auth,
+    OrderService orderService,
+  ) async {
+    final ok = await orderService.updateOrderStatus(
+      order.id,
+      newStatus,
+      isDemo: auth.isDemoMode,
+      cafeId: auth.currentCafeId,
+    );
+    if (ok && mounted) {
+      context.read<EarningsService>().fetchEarnings(auth.currentCafeId, isDemo: auth.isDemoMode);
+      if (newStatus == 'paid') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.green.shade800,
+            content: Text('Order #${order.shortId} marked Paid! ₹${order.totalAmount.toStringAsFixed(0)} added to Earnings.'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildStatusActionBtn(OrderModel order, AuthService auth, OrderService orderService) {
     String nextLabel = '';
     String nextStatus = '';
     Color btnColor = const Color(0xFFFF7A00);
     IconData icon = Icons.check;
 
-    switch (order.status.toLowerCase()) {
+    final normStatus = order.status.toLowerCase();
+
+    switch (normStatus) {
       case 'pending':
         nextLabel = 'Start Preparing';
         nextStatus = 'preparing';
@@ -86,23 +115,41 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
         );
     }
 
-    return ElevatedButton.icon(
-      onPressed: () {
-        orderService.updateOrderStatus(
-          order.id,
-          nextStatus,
-          isDemo: auth.isDemoMode,
-          cafeId: auth.currentCafeId,
-        );
-      },
-      icon: Icon(icon, size: 16),
-      label: Text(nextLabel, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: btnColor,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      alignment: WrapAlignment.end,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        // Quick Direct Paid button if customer pays before order is served
+        if (normStatus == 'pending' || normStatus == 'preparing')
+          OutlinedButton.icon(
+            onPressed: () => _updateOrderStatusAndEarnings(order, 'paid', auth, orderService),
+            icon: const Icon(Icons.payments_outlined, size: 14, color: Colors.green),
+            label: Text(
+              'Collect ₹${order.totalAmount.toStringAsFixed(0)}',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.green),
+            ),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Colors.green),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+          ),
+
+        // Primary Next-Step Action Button
+        ElevatedButton.icon(
+          onPressed: () => _updateOrderStatusAndEarnings(order, nextStatus, auth, orderService),
+          icon: Icon(icon, size: 16),
+          label: Text(nextLabel, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: btnColor,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        ),
+      ],
     );
   }
 

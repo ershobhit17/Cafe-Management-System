@@ -23,7 +23,9 @@ class _EarningsScreenState extends State<EarningsScreen> {
 
   void _loadEarnings() {
     final auth = context.read<AuthService>();
-    context.read<EarningsService>().fetchEarnings(auth.currentCafeId, isDemo: auth.isDemoMode);
+    final earnings = context.read<EarningsService>();
+    earnings.fetchEarnings(auth.currentCafeId, isDemo: auth.isDemoMode);
+    earnings.subscribeToRealtimeEarnings(auth.currentCafeId, isDemo: auth.isDemoMode);
   }
 
   Future<void> _selectCustomRange() async {
@@ -501,6 +503,138 @@ class _EarningsScreenState extends State<EarningsScreen> {
                                 ),
                               ),
                       ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // 4. DAY-BY-DAY PAID SALES BREAKDOWN
+              const SizedBox(height: 16),
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Day-by-Day Sales Breakdown',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFF7A00).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '${earnings.chartPoints.where((p) => p.amount > 0).length} Days Active',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFFF7A00)),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      if (earnings.chartPoints.every((p) => p.amount == 0))
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 16.0),
+                          child: Center(
+                            child: Column(
+                              children: [
+                                Icon(Icons.receipt_long_outlined, size: 36, color: Colors.grey.shade400),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'No paid orders recorded yet (₹0)',
+                                  style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'As orders are marked Paid, each day\'s revenue will show here.',
+                                  style: TextStyle(color: Colors.grey.shade400, fontSize: 11),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      else
+                        ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: earnings.chartPoints.length,
+                          separatorBuilder: (context, index) => const Divider(height: 1),
+                          itemBuilder: (ctx, i) {
+                            final pt = earnings.chartPoints[earnings.chartPoints.length - 1 - i];
+                            final isToday = DateUtils.isSameDay(pt.date, DateTime.now());
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        width: 36,
+                                        height: 36,
+                                        decoration: BoxDecoration(
+                                          color: pt.amount > 0 ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        alignment: Alignment.center,
+                                        child: Icon(
+                                          pt.amount > 0 ? Icons.check_circle : Icons.calendar_today_outlined,
+                                          size: 18,
+                                          color: pt.amount > 0 ? Colors.green.shade700 : Colors.grey.shade400,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Text(
+                                                DateFormat('EEE, d MMM').format(pt.date),
+                                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                              ),
+                                              if (isToday) ...[
+                                                const SizedBox(width: 6),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFFFF7A00),
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: const Text('TODAY', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            '${pt.orderCount} paid ${pt.orderCount == 1 ? "order" : "orders"}',
+                                            style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                  Text(
+                                    '₹${pt.amount.toStringAsFixed(0)}',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 16,
+                                      color: pt.amount > 0 ? Colors.green.shade800 : Colors.grey.shade500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
                     ],
                   ),
                 ),
