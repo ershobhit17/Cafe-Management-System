@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -18,15 +19,28 @@ class TablesQrScreen extends StatefulWidget {
 }
 
 class _TablesQrScreenState extends State<TablesQrScreen> {
-  // Default to Live Server URL since user is running Live Server
-  String _baseUrl = 'http://127.0.0.1:5500/customer-web';
+  final _storage = const FlutterSecureStorage();
+  static const String _keyCustomBaseUrl = 'custom_customer_web_base_url';
+
+  // Default to live Render deployment so QR codes and browser links work everywhere
+  String _baseUrl = SupabaseConfig.customerWebBaseUrl;
 
   @override
   void initState() {
     super.initState();
+    _loadCustomBaseUrl();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadTables();
     });
+  }
+
+  Future<void> _loadCustomBaseUrl() async {
+    try {
+      final saved = await _storage.read(key: _keyCustomBaseUrl);
+      if (saved != null && saved.trim().isNotEmpty && mounted) {
+        setState(() => _baseUrl = saved.trim());
+      }
+    } catch (_) {}
   }
 
   void _loadTables() {
@@ -35,6 +49,19 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
   }
 
   Future<void> _launchWebUrl(String url) async {
+    if (url.contains('127.0.0.1') || url.contains('localhost')) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            duration: Duration(seconds: 4),
+            content: Text(
+              'Notice: 127.0.0.1 phone me open nahi hota. Render URL use karein.',
+            ),
+          ),
+        );
+      }
+    }
     final uri = Uri.parse(url);
     try {
       final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -414,13 +441,13 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Customer Web App Base URL'),
+        title: const Text('Customer Web App URL'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'QR code will append /index.html?cafe=...&table=... to this base URL.',
+              'QR codes and "Open in Browser" use this base URL. The table & cafe ID are automatically appended.',
               style: TextStyle(fontSize: 13, color: Colors.grey),
             ),
             const SizedBox(height: 12),
@@ -429,6 +456,7 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
               decoration: const InputDecoration(
                 labelText: 'Base URL',
                 border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.link),
               ),
             ),
             const SizedBox(height: 12),
@@ -439,12 +467,14 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
               runSpacing: 6,
               children: [
                 ActionChip(
-                  label: const Text('Live Server (:5500)'),
-                  onPressed: () => c.text = 'http://127.0.0.1:5500/customer-web',
+                  avatar: const Icon(Icons.cloud_done, size: 16, color: Colors.green),
+                  label: const Text('Render Live (Recommended)'),
+                  onPressed: () => c.text = SupabaseConfig.customerWebBaseUrl,
                 ),
                 ActionChip(
-                  label: const Text('Node/Python (:3000)'),
-                  onPressed: () => c.text = 'http://localhost:3000',
+                  avatar: const Icon(Icons.laptop, size: 16, color: Colors.blueGrey),
+                  label: const Text('Local Live Server (:5500)'),
+                  onPressed: () => c.text = 'http://127.0.0.1:5500/customer-web',
                 ),
               ],
             ),
@@ -452,18 +482,18 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.amber.shade50,
+                color: Colors.blue.shade50,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.amber.shade300),
+                border: Border.all(color: Colors.blue.shade200),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.info_outline, size: 18, color: Colors.amber),
+                  const Icon(Icons.info_outline, size: 18, color: Colors.blue),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Phone se scan karne ke liye: Laptop ka Wi-Fi IP daalein (jaise http://192.168.1.10:5500/customer-web)',
-                      style: TextStyle(fontSize: 11, color: Colors.amber.shade900),
+                      'Render Live URL mobile phone scan karne ke liye best hai kyunki ye public internet par chalta hai.',
+                      style: TextStyle(fontSize: 11, color: Colors.blue.shade900),
                     ),
                   ),
                 ],
@@ -475,9 +505,13 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF7A00), foregroundColor: Colors.white),
-            onPressed: () {
-              setState(() => _baseUrl = c.text.trim());
-              Navigator.pop(ctx);
+            onPressed: () async {
+              final newUrl = c.text.trim();
+              if (newUrl.isNotEmpty) {
+                setState(() => _baseUrl = newUrl);
+                await _storage.write(key: _keyCustomBaseUrl, value: newUrl);
+              }
+              if (ctx.mounted) Navigator.pop(ctx);
             },
             child: const Text('Save URL'),
           ),
@@ -490,7 +524,7 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthService>();
     final cafeService = context.watch<CafeService>();
-    final cafeName = SupabaseConfig.demoCafeName;
+    final cafeName = auth.currentCafeName.isNotEmpty ? auth.currentCafeName : SupabaseConfig.demoCafeName;
 
     return Scaffold(
       appBar: AppBar(
