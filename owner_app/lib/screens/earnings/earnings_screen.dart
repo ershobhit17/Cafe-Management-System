@@ -33,7 +33,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
     final picked = await showDateRangePicker(
       context: context,
       firstDate: DateTime(2025, 1, 1),
-      lastDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 1)),
       initialDateRange: earnings.customRange ??
           DateTimeRange(
             start: DateTime.now().subtract(const Duration(days: 7)),
@@ -54,6 +54,45 @@ class _EarningsScreenState extends State<EarningsScreen> {
     }
   }
 
+  void _confirmResetTodayShift() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.restart_alt, color: Color(0xFFFF7A00)),
+            SizedBox(width: 8),
+            Text('Restart Today\'s Shift?'),
+          ],
+        ),
+        content: const Text(
+          'This will restart today\'s sales counter back to ₹0 from this moment onward (e.g. for closing register or opening a new shift).\n\nYour past orders are safely preserved in database analytics.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF7A00),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              final auth = context.read<AuthService>();
+              context.read<EarningsService>().resetTodayShift(auth.currentCafeId, isDemo: auth.isDemoMode);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Today\'s register counter has been restarted to ₹0.')),
+              );
+            },
+            child: const Text('Restart Counter to ₹0'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthService>();
@@ -63,7 +102,11 @@ class _EarningsScreenState extends State<EarningsScreen> {
       appBar: AppBar(
         title: const Text('Earnings & Revenue', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadEarnings),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh Revenue',
+            onPressed: _loadEarnings,
+          ),
         ],
       ),
       body: RefreshIndicator(
@@ -75,42 +118,110 @@ class _EarningsScreenState extends State<EarningsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Date Range Segmented Control
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _buildRangeChip(EarningsRange.today, 'Today', earnings, auth),
-                    const SizedBox(width: 8),
-                    _buildRangeChip(EarningsRange.thisWeek, 'This Week', earnings, auth),
-                    const SizedBox(width: 8),
-                    _buildRangeChip(EarningsRange.thisMonth, 'This Month', earnings, auth),
-                    const SizedBox(width: 8),
-                    ChoiceChip(
-                      label: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.date_range, size: 16),
-                          const SizedBox(width: 4),
-                          Text(earnings.selectedRange == EarningsRange.custom && earnings.customRange != null
-                              ? '${DateFormat('d MMM').format(earnings.customRange!.start)} - ${DateFormat('d MMM').format(earnings.customRange!.end)}'
-                              : 'Custom'),
-                        ],
+              // Error banner if cloud sync failed
+              if (earnings.errorMessage != null)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.cloud_off, color: Colors.red, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          earnings.errorMessage!,
+                          style: TextStyle(color: Colors.red.shade900, fontSize: 12),
+                        ),
                       ),
-                      selected: earnings.selectedRange == EarningsRange.custom,
-                      selectedColor: const Color(0xFFFF7A00),
-                      labelStyle: TextStyle(
-                        color: earnings.selectedRange == EarningsRange.custom ? Colors.white : null,
-                        fontWeight: FontWeight.w600,
+                      TextButton(
+                        onPressed: _loadEarnings,
+                        child: const Text('Retry', style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
-                      onSelected: (_) => _selectCustomRange(),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
+
+              // Active Shift Reset Banner (if enabled)
+              if (earnings.hasActiveShiftReset)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF3E0),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFFFCC80)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.history_toggle_off, color: Color(0xFFFF7A00), size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Shift active since ${DateFormat('hh:mm a').format(earnings.shiftResetTime!)}',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFE65100)),
+                        ),
+                      ),
+                      TextButton(
+                        style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
+                        onPressed: () {
+                          earnings.restoreFullDayView(auth.currentCafeId, isDemo: auth.isDemoMode);
+                        },
+                        child: const Text('Show Full Day', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // 1. DEDICATED SALES OVERVIEW CARDS (Today, Week, Month)
+              const Text('Sales Overview', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildPeriodCard(
+                      title: 'TODAY',
+                      amount: earnings.todayRevenue,
+                      orders: earnings.todayOrders,
+                      icon: Icons.today,
+                      color: const Color(0xFFFF7A00),
+                      isActive: earnings.selectedRange == EarningsRange.today,
+                      onTap: () => earnings.setRange(EarningsRange.today, auth.currentCafeId, isDemo: auth.isDemoMode),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildPeriodCard(
+                      title: 'THIS WEEK',
+                      amount: earnings.weeklyRevenue,
+                      orders: earnings.weeklyOrders,
+                      icon: Icons.calendar_view_week,
+                      color: Colors.blue.shade700,
+                      isActive: earnings.selectedRange == EarningsRange.thisWeek,
+                      onTap: () => earnings.setRange(EarningsRange.thisWeek, auth.currentCafeId, isDemo: auth.isDemoMode),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildPeriodCard(
+                      title: 'THIS MONTH',
+                      amount: earnings.monthlyRevenue,
+                      orders: earnings.monthlyOrders,
+                      icon: Icons.calendar_month,
+                      color: Colors.teal.shade700,
+                      isActive: earnings.selectedRange == EarningsRange.thisMonth,
+                      onTap: () => earnings.setRange(EarningsRange.thisMonth, auth.currentCafeId, isDemo: auth.isDemoMode),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
 
-              // Hero Revenue Card
+              // 2. HERO REVENUE CARD FOR SELECTED FILTER
               Card(
                 elevation: 3,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
@@ -118,8 +229,8 @@ class _EarningsScreenState extends State<EarningsScreen> {
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(18),
-                    gradient: LinearGradient(
-                      colors: [const Color(0xFFFF7A00), const Color(0xFFFF9E43)],
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFF7A00), Color(0xFFFF9E43)],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
@@ -127,16 +238,30 @@ class _EarningsScreenState extends State<EarningsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        earnings.selectedRange == EarningsRange.today
-                            ? "TODAY'S EARNINGS"
-                            : 'TOTAL REVENUE',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1,
-                        ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _getRangeTitle(earnings.selectedRange),
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white24,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '${earnings.totalOrders} Orders',
+                              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -147,23 +272,98 @@ class _EarningsScreenState extends State<EarningsScreen> {
                           fontWeight: FontWeight.w900,
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Auto-resets daily at 00:00 • Real-time verified',
-                        style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 12),
+                      const SizedBox(height: 10),
+                      // Paid vs Pending Split
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.black26,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.check_circle, size: 12, color: Color(0xFF81C784)),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Paid: ₹${earnings.paidRevenue.toStringAsFixed(0)}',
+                                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          if (earnings.pendingRevenue > 0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.black26,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.access_time, size: 12, color: Color(0xFFFFD54F)),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Serving: ₹${earnings.pendingRevenue.toStringAsFixed(0)}',
+                                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
                       ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
 
-              // Secondary Metrics (Orders count & AOV)
+              // Action buttons below Hero Card
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.restart_alt, size: 18, color: Color(0xFFFF7A00)),
+                      label: const Text('Restart Shift (₹0)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFFF7A00),
+                        side: const BorderSide(color: Color(0xFFFF7A00)),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: _confirmResetTodayShift,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.date_range, size: 18),
+                      label: Text(
+                        earnings.selectedRange == EarningsRange.custom && earnings.customRange != null
+                            ? '${DateFormat('d MMM').format(earnings.customRange!.start)} - ${DateFormat('d MMM').format(earnings.customRange!.end)}'
+                            : 'Custom Date',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: _selectCustomRange,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Secondary Metrics (Total Orders & AOV)
               Row(
                 children: [
                   Expanded(
                     child: _buildMetricCard(
-                      'Completed Orders',
+                      'Fulfilled Orders',
                       '${earnings.totalOrders}',
                       Icons.receipt_long,
                       Colors.blue.shade700,
@@ -182,7 +382,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Chart Section
+              // 3. REVENUE TREND BAR CHART
               Card(
                 elevation: 2,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -199,7 +399,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
                             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                           ),
                           Text(
-                            'Day-wise breakdown',
+                            'Daily Breakdown',
                             style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                           ),
                         ],
@@ -207,8 +407,25 @@ class _EarningsScreenState extends State<EarningsScreen> {
                       const SizedBox(height: 24),
                       SizedBox(
                         height: 220,
-                        child: earnings.chartPoints.isEmpty
-                            ? const Center(child: Text('No revenue data for selected period'))
+                        child: earnings.chartPoints.isEmpty || earnings.chartPoints.every((p) => p.amount == 0)
+                            ? Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.bar_chart_outlined, size: 48, color: Colors.grey.shade400),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'No sales recorded in this period',
+                                      style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'New customer orders will appear here automatically',
+                                      style: TextStyle(color: Colors.grey.shade400, fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                              )
                             : BarChart(
                                 BarChartData(
                                   alignment: BarChartAlignment.spaceAround,
@@ -235,7 +452,6 @@ class _EarningsScreenState extends State<EarningsScreen> {
                                           if (idx < 0 || idx >= earnings.chartPoints.length) {
                                             return const SizedBox.shrink();
                                           }
-                                          // Show label occasionally if many days
                                           if (earnings.chartPoints.length > 7 && idx % 3 != 0) {
                                             return const SizedBox.shrink();
                                           }
@@ -253,11 +469,17 @@ class _EarningsScreenState extends State<EarningsScreen> {
                                     leftTitles: AxisTitles(
                                       sideTitles: SideTitles(
                                         showTitles: true,
-                                        reservedSize: 38,
+                                        reservedSize: 42,
                                         getTitlesWidget: (val, meta) {
                                           if (val == 0) return const SizedBox.shrink();
+                                          if (val >= 1000) {
+                                            return Text(
+                                              '₹${(val / 1000).toStringAsFixed(0)}k',
+                                              style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                                            );
+                                          }
                                           return Text(
-                                            '₹${(val / 1000).toStringAsFixed(0)}k',
+                                            '₹${val.toStringAsFixed(0)}',
                                             style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
                                           );
                                         },
@@ -270,7 +492,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
                                     show: true,
                                     drawVerticalLine: false,
                                     getDrawingHorizontalLine: (value) => FlLine(
-                                      color: Colors.grey.withOpacity(0.15),
+                                      color: Colors.grey.withValues(alpha: 0.15),
                                       strokeWidth: 1,
                                     ),
                                   ),
@@ -290,17 +512,76 @@ class _EarningsScreenState extends State<EarningsScreen> {
     );
   }
 
-  Widget _buildRangeChip(EarningsRange range, String label, EarningsService earnings, AuthService auth) {
-    final isSelected = earnings.selectedRange == range;
-    return ChoiceChip(
-      label: Text(label),
-      selected: isSelected,
-      selectedColor: const Color(0xFFFF7A00),
-      labelStyle: TextStyle(
-        color: isSelected ? Colors.white : null,
-        fontWeight: FontWeight.w600,
+  String _getRangeTitle(EarningsRange range) {
+    switch (range) {
+      case EarningsRange.today:
+        return "TODAY'S REVENUE";
+      case EarningsRange.thisWeek:
+        return "THIS WEEK'S REVENUE";
+      case EarningsRange.thisMonth:
+        return "THIS MONTH'S REVENUE";
+      case EarningsRange.custom:
+        return "CUSTOM PERIOD REVENUE";
+    }
+  }
+
+  Widget _buildPeriodCard({
+    required String title,
+    required double amount,
+    required int orders,
+    required IconData icon,
+    required Color color,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: isActive ? color.withValues(alpha: 0.12) : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isActive ? color : Colors.grey.shade300,
+            width: isActive ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 14, color: isActive ? color : Colors.grey.shade600),
+                const SizedBox(width: 4),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: isActive ? color : Colors.grey.shade600,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '₹${amount.toStringAsFixed(0)}',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+                color: isActive ? color : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '$orders orders',
+              style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+            ),
+          ],
+        ),
       ),
-      onSelected: (_) => earnings.setRange(range, auth.currentCafeId, isDemo: auth.isDemoMode),
     );
   }
 
