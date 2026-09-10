@@ -9,6 +9,7 @@ import 'services/cafe_service.dart';
 import 'services/earnings_service.dart';
 import 'services/menu_service.dart';
 import 'services/order_service.dart';
+import 'services/sound_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,6 +35,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => MenuService()),
         ChangeNotifierProvider(create: (_) => OrderService()),
         ChangeNotifierProvider(create: (_) => EarningsService()),
+        ChangeNotifierProvider(create: (_) => SoundService.instance),
       ],
       child: const CafeOwnerApp(),
     ),

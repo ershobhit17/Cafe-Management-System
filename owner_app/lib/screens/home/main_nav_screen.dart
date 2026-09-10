@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/earnings_service.dart';
 import '../../services/order_service.dart';
+import '../../services/sound_service.dart';
 import '../auth/login_screen.dart';
 import '../dashboard/live_orders_screen.dart';
 import '../earnings/earnings_screen.dart';
@@ -49,6 +50,34 @@ class _MainNavScreenState extends State<MainNavScreen> {
               leading: const Icon(Icons.security, color: Colors.blue),
               title: const Text('Session Security'),
               subtitle: Text(auth.isDemoMode ? 'Demo Mode Active' : 'Persistent Supabase Token'),
+            ),
+            const Divider(),
+            Consumer<SoundService>(
+              builder: (context, sound, _) => Column(
+                children: [
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    secondary: Icon(
+                      sound.isSoundEnabled ? Icons.notifications_active : Icons.notifications_off,
+                      color: const Color(0xFFFF7A00),
+                    ),
+                    title: const Text('Order Bell Ring', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                    subtitle: const Text('Ring melodic bell when new order arrives', style: TextStyle(fontSize: 12)),
+                    value: sound.isSoundEnabled,
+                    activeThumbColor: const Color(0xFFFF7A00),
+                    onChanged: (val) => sound.setSoundEnabled(val),
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                      icon: const Icon(Icons.volume_up, size: 16, color: Color(0xFFFF7A00)),
+                      label: const Text('Test Bell Ring', style: TextStyle(fontSize: 12, color: Color(0xFFFF7A00), fontWeight: FontWeight.bold)),
+                      onPressed: () => sound.testSound(),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

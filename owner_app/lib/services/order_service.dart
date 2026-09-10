@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/supabase_config.dart';
 import '../models/order_model.dart';
+import 'sound_service.dart';
 
 class OrderService extends ChangeNotifier {
   List<OrderModel> _orders = [];
@@ -11,6 +12,7 @@ class OrderService extends ChangeNotifier {
   RealtimeChannel? _realtimeChannel;
   Timer? _pollingTimer;
   bool _hasNewOrderAlert = false;
+  bool _hasInitialFetchDone = false;
 
   List<OrderModel> get orders => _orders;
   bool get isLoading => _isLoading;
@@ -99,9 +101,16 @@ class OrderService extends ChangeNotifier {
         loaded.add(OrderModel.fromJson(row, items: items));
       }
 
-      // Check if new orders arrived to trigger badge
-      if (_orders.isNotEmpty && loaded.isNotEmpty && loaded.length > _orders.length) {
-        _hasNewOrderAlert = true;
+      // Check if new orders arrived to trigger badge & sound effect
+      if (_hasInitialFetchDone) {
+        final existingIds = _orders.map((o) => o.id).toSet();
+        final hasBrandNewOrder = loaded.any((o) => !existingIds.contains(o.id));
+        if (hasBrandNewOrder) {
+          _hasNewOrderAlert = true;
+          SoundService.instance.playOrderAlert();
+        }
+      } else {
+        _hasInitialFetchDone = true;
       }
 
       _orders = loaded;
@@ -138,6 +147,7 @@ class OrderService extends ChangeNotifier {
             debugPrint('Realtime order change event: ${payload.eventType}');
             if (payload.eventType == PostgresChangeEvent.insert) {
               _hasNewOrderAlert = true;
+              SoundService.instance.playOrderAlert();
             }
             // Refresh orders list on any database modification
             await fetchOrders(cafeId, isDemo: isDemo);

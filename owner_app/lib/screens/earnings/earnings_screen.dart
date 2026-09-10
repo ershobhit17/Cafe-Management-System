@@ -95,6 +95,335 @@ class _EarningsScreenState extends State<EarningsScreen> {
     );
   }
 
+  void _confirmResetWeek() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.calendar_view_week, color: Color(0xFFFF7A00)),
+            SizedBox(width: 8),
+            Text('Reset This Week?'),
+          ],
+        ),
+        content: const Text(
+          'This will restart this week\'s sales counter back to ₹0 from this moment onward.\n\nNew orders will increment this counter. Past orders remain safely preserved in database analytics.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF7A00),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              final auth = context.read<AuthService>();
+              context.read<EarningsService>().resetWeekCounter(auth.currentCafeId, isDemo: auth.isDemoMode);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Weekly sales counter has been restarted to ₹0.')),
+              );
+            },
+            child: const Text('Reset Week to ₹0'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmResetMonth() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.calendar_month, color: Color(0xFFFF7A00)),
+            SizedBox(width: 8),
+            Text('Reset This Month?'),
+          ],
+        ),
+        content: const Text(
+          'This will restart this month\'s sales counter back to ₹0 from this moment onward.\n\nNew orders will increment this counter. Past orders remain safely preserved in database analytics.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF7A00),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              final auth = context.read<AuthService>();
+              context.read<EarningsService>().resetMonthCounter(auth.currentCafeId, isDemo: auth.isDemoMode);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Monthly sales counter has been restarted to ₹0.')),
+              );
+            },
+            child: const Text('Reset Month to ₹0'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmResetAll() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.restart_alt, color: Color(0xFFFF7A00)),
+            SizedBox(width: 8),
+            Text('Reset All Period Counters?'),
+          ],
+        ),
+        content: const Text(
+          'This will restart Today, This Week, and This Month counters to ₹0 simultaneously from this moment.\n\nAll historical order records remain intact in your database.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF7A00),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              final auth = context.read<AuthService>();
+              context.read<EarningsService>().resetAllCounters(auth.currentCafeId, isDemo: auth.isDemoMode);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('All sales counters have been restarted to ₹0.')),
+              );
+            },
+            child: const Text('Reset All to ₹0'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmClearDatabaseOrders() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Delete All Orders?'),
+          ],
+        ),
+        content: const Text(
+          '⚠️ WARNING: This will permanently delete all past orders for your cafe from the cloud database.\n\nUse this only if you placed test orders while setting up your cafe.\n\nThis cannot be undone!',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final auth = context.read<AuthService>();
+              final success = await context.read<EarningsService>().clearCafeOrdersDatabase(auth.currentCafeId, isDemo: auth.isDemoMode);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    backgroundColor: success ? Colors.green.shade800 : Colors.red.shade800,
+                    content: Text(success ? 'Database orders permanently cleared!' : 'Failed to clear database orders.'),
+                  ),
+                );
+              }
+            },
+            child: const Text('Delete Database Orders'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showResetOptionsSheet() {
+    final earnings = context.read<EarningsService>();
+    final auth = context.read<AuthService>();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Reset Sales Counters', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const Text('Select which counter to restart to ₹0 or manage database test data:', style: TextStyle(color: Colors.grey, fontSize: 13)),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: const Color(0xFFFF7A00).withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+                  child: const Icon(Icons.today, color: Color(0xFFFF7A00), size: 20),
+                ),
+                title: const Text('Restart Today\'s Shift (₹0)', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text('Restarts daily sales counter to ₹0 from now'),
+                trailing: earnings.hasActiveShiftReset ? const Chip(label: Text('Reset Active', style: TextStyle(fontSize: 10))) : null,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _confirmResetTodayShift();
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.blue.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+                  child: const Icon(Icons.calendar_view_week, color: Colors.blue, size: 20),
+                ),
+                title: const Text('Reset This Week\'s Counter (₹0)', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text('Restarts weekly earnings to ₹0 from now'),
+                trailing: earnings.hasActiveWeekReset ? const Chip(label: Text('Reset Active', style: TextStyle(fontSize: 10))) : null,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _confirmResetWeek();
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.teal.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+                  child: const Icon(Icons.calendar_month, color: Colors.teal, size: 20),
+                ),
+                title: const Text('Reset This Month\'s Counter (₹0)', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text('Restarts monthly earnings to ₹0 from now'),
+                trailing: earnings.hasActiveMonthReset ? const Chip(label: Text('Reset Active', style: TextStyle(fontSize: 10))) : null,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _confirmResetMonth();
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.purple.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+                  child: const Icon(Icons.restart_alt, color: Colors.purple, size: 20),
+                ),
+                title: const Text('Reset All Counters (₹0)', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text('Restart Today, Week & Month to ₹0 at once'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _confirmResetAll();
+                },
+              ),
+              if (earnings.hasAnyActiveReset) ...[
+                const Divider(),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.green.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.restore, color: Colors.green, size: 20),
+                  ),
+                  title: const Text('Restore Full History (Show Real Data)', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.green)),
+                  subtitle: const Text('Removes resets and displays true database figures'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    earnings.restoreAllViews(auth.currentCafeId, isDemo: auth.isDemoMode);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('All counter resets cleared. Showing full database sales.')),
+                    );
+                  },
+                ),
+              ],
+              const Divider(),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+                  child: const Icon(Icons.delete_forever, color: Colors.red, size: 20),
+                ),
+                title: const Text('Clear Test Orders from Database', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.red)),
+                subtitle: const Text('Permanently wipes test orders from Supabase'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _confirmClearDatabaseOrders();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _getContextualResetLabel(EarningsRange range) {
+    switch (range) {
+      case EarningsRange.today:
+        return 'Restart Shift (₹0)';
+      case EarningsRange.thisWeek:
+        return 'Reset Week (₹0)';
+      case EarningsRange.thisMonth:
+        return 'Reset Month (₹0)';
+      case EarningsRange.custom:
+        return 'Reset Options';
+    }
+  }
+
+  void _handleContextualReset(EarningsRange range) {
+    switch (range) {
+      case EarningsRange.today:
+        _confirmResetTodayShift();
+        break;
+      case EarningsRange.thisWeek:
+        _confirmResetWeek();
+        break;
+      case EarningsRange.thisMonth:
+        _confirmResetMonth();
+        break;
+      case EarningsRange.custom:
+        _showResetOptionsSheet();
+        break;
+    }
+  }
+
+  String _getActiveResetBannerText(EarningsService earnings) {
+    final List<String> active = [];
+    if (earnings.hasActiveShiftReset) {
+      active.add('Today (${DateFormat('hh:mm a').format(earnings.shiftResetTime!)})');
+    }
+    if (earnings.hasActiveWeekReset) {
+      active.add('Week');
+    }
+    if (earnings.hasActiveMonthReset) {
+      active.add('Month');
+    }
+    return 'Active reset: ${active.join(', ')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthService>();
@@ -104,6 +433,11 @@ class _EarningsScreenState extends State<EarningsScreen> {
       appBar: AppBar(
         title: const Text('Earnings & Revenue', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: 'Counter Reset Options',
+            onPressed: _showResetOptionsSheet,
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh Revenue',
@@ -148,8 +482,8 @@ class _EarningsScreenState extends State<EarningsScreen> {
                   ),
                 ),
 
-              // Active Shift Reset Banner (if enabled)
-              if (earnings.hasActiveShiftReset)
+              // Active Shift/Week/Month Reset Banner (if enabled)
+              if (earnings.hasAnyActiveReset)
                 Container(
                   margin: const EdgeInsets.only(bottom: 12),
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -164,16 +498,19 @@ class _EarningsScreenState extends State<EarningsScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Shift active since ${DateFormat('hh:mm a').format(earnings.shiftResetTime!)}',
+                          _getActiveResetBannerText(earnings),
                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFE65100)),
                         ),
                       ),
                       TextButton(
                         style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
                         onPressed: () {
-                          earnings.restoreFullDayView(auth.currentCafeId, isDemo: auth.isDemoMode);
+                          earnings.restoreAllViews(auth.currentCafeId, isDemo: auth.isDemoMode);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('All counter resets cleared. Showing full database sales.')),
+                          );
                         },
-                        child: const Text('Show Full Day', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        child: const Text('Show Full Data', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                       ),
                     ],
                   ),
@@ -326,20 +663,36 @@ class _EarningsScreenState extends State<EarningsScreen> {
               Row(
                 children: [
                   Expanded(
+                    flex: 5,
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.restart_alt, size: 18, color: Color(0xFFFF7A00)),
-                      label: const Text('Restart Shift (₹0)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      label: Text(
+                        _getContextualResetLabel(earnings.selectedRange),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFFFF7A00),
                         side: const BorderSide(color: Color(0xFFFF7A00)),
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
-                      onPressed: _confirmResetTodayShift,
+                      onPressed: () => _handleContextualReset(earnings.selectedRange),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
+                  IconButton.outlined(
+                    tooltip: 'Reset Options',
+                    icon: const Icon(Icons.tune, size: 18, color: Color(0xFFFF7A00)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFFFF7A00)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.all(10),
+                    ),
+                    onPressed: _showResetOptionsSheet,
+                  ),
+                  const SizedBox(width: 6),
                   Expanded(
+                    flex: 4,
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.date_range, size: 18),
                       label: Text(

@@ -19,6 +19,8 @@ class DailyEarningPoint {
 class EarningsService extends ChangeNotifier {
   static const _storage = FlutterSecureStorage();
   static const _kShiftResetKey = 'cafe_shift_reset_timestamp';
+  static const _kWeekResetKey = 'cafe_week_reset_timestamp';
+  static const _kMonthResetKey = 'cafe_month_reset_timestamp';
 
   RealtimeChannel? _realtimeChannel;
   Timer? _pollingTimer;
@@ -46,6 +48,8 @@ class EarningsService extends ChangeNotifier {
   int _monthlyOrders = 0;
 
   DateTime? _shiftResetTime;
+  DateTime? _weekResetTime;
+  DateTime? _monthResetTime;
 
   bool get isLoading => _isLoading;
   EarningsRange get selectedRange => _selectedRange;
@@ -68,24 +72,52 @@ class EarningsService extends ChangeNotifier {
   int get monthlyOrders => _monthlyOrders;
 
   DateTime? get shiftResetTime => _shiftResetTime;
+  DateTime? get weekResetTime => _weekResetTime;
+  DateTime? get monthResetTime => _monthResetTime;
+
   bool get hasActiveShiftReset => _shiftResetTime != null;
+  bool get hasActiveWeekReset => _weekResetTime != null;
+  bool get hasActiveMonthReset => _monthResetTime != null;
+  bool get hasAnyActiveReset => hasActiveShiftReset || hasActiveWeekReset || hasActiveMonthReset;
 
   EarningsService() {
     _initShiftReset();
   }
 
   Future<void> _initShiftReset() async {
+    final now = DateTime.now();
     try {
-      final saved = await _storage.read(key: _kShiftResetKey);
-      if (saved != null) {
-        final parsed = DateTime.tryParse(saved);
-        if (parsed != null) {
-          final now = DateTime.now();
-          if (parsed.year == now.year && parsed.month == now.month && parsed.day == now.day) {
-            _shiftResetTime = parsed;
-          } else {
-            await _storage.delete(key: _kShiftResetKey);
-          }
+      // 1. Shift (Today) reset
+      final savedShift = await _storage.read(key: _kShiftResetKey);
+      if (savedShift != null) {
+        final parsed = DateTime.tryParse(savedShift);
+        if (parsed != null && parsed.year == now.year && parsed.month == now.month && parsed.day == now.day) {
+          _shiftResetTime = parsed;
+        } else {
+          await _storage.delete(key: _kShiftResetKey);
+        }
+      }
+
+      // 2. Week reset
+      final savedWeek = await _storage.read(key: _kWeekResetKey);
+      if (savedWeek != null) {
+        final parsed = DateTime.tryParse(savedWeek);
+        final currentWeekStart = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
+        if (parsed != null && (parsed.isAfter(currentWeekStart) || parsed.isAtSameMomentAs(currentWeekStart))) {
+          _weekResetTime = parsed;
+        } else {
+          await _storage.delete(key: _kWeekResetKey);
+        }
+      }
+
+      // 3. Month reset
+      final savedMonth = await _storage.read(key: _kMonthResetKey);
+      if (savedMonth != null) {
+        final parsed = DateTime.tryParse(savedMonth);
+        if (parsed != null && parsed.year == now.year && parsed.month == now.month) {
+          _monthResetTime = parsed;
+        } else {
+          await _storage.delete(key: _kMonthResetKey);
         }
       }
     } catch (_) {}
@@ -128,12 +160,87 @@ class EarningsService extends ChangeNotifier {
     await fetchEarnings(cafeId, isDemo: isDemo);
   }
 
+  Future<void> resetWeekCounter(String cafeId, {bool isDemo = false}) async {
+    final now = DateTime.now();
+    _weekResetTime = now;
+    try {
+      await _storage.write(key: _kWeekResetKey, value: now.toIso8601String());
+    } catch (_) {}
+    await fetchEarnings(cafeId, isDemo: isDemo);
+  }
+
+  Future<void> resetMonthCounter(String cafeId, {bool isDemo = false}) async {
+    final now = DateTime.now();
+    _monthResetTime = now;
+    try {
+      await _storage.write(key: _kMonthResetKey, value: now.toIso8601String());
+    } catch (_) {}
+    await fetchEarnings(cafeId, isDemo: isDemo);
+  }
+
+  Future<void> resetAllCounters(String cafeId, {bool isDemo = false}) async {
+    final now = DateTime.now();
+    _shiftResetTime = now;
+    _weekResetTime = now;
+    _monthResetTime = now;
+    try {
+      await _storage.write(key: _kShiftResetKey, value: now.toIso8601String());
+      await _storage.write(key: _kWeekResetKey, value: now.toIso8601String());
+      await _storage.write(key: _kMonthResetKey, value: now.toIso8601String());
+    } catch (_) {}
+    await fetchEarnings(cafeId, isDemo: isDemo);
+  }
+
   Future<void> restoreFullDayView(String cafeId, {bool isDemo = false}) async {
     _shiftResetTime = null;
     try {
       await _storage.delete(key: _kShiftResetKey);
     } catch (_) {}
     await fetchEarnings(cafeId, isDemo: isDemo);
+  }
+
+  Future<void> restoreFullWeekView(String cafeId, {bool isDemo = false}) async {
+    _weekResetTime = null;
+    try {
+      await _storage.delete(key: _kWeekResetKey);
+    } catch (_) {}
+    await fetchEarnings(cafeId, isDemo: isDemo);
+  }
+
+  Future<void> restoreFullMonthView(String cafeId, {bool isDemo = false}) async {
+    _monthResetTime = null;
+    try {
+      await _storage.delete(key: _kMonthResetKey);
+    } catch (_) {}
+    await fetchEarnings(cafeId, isDemo: isDemo);
+  }
+
+  Future<void> restoreAllViews(String cafeId, {bool isDemo = false}) async {
+    _shiftResetTime = null;
+    _weekResetTime = null;
+    _monthResetTime = null;
+    try {
+      await _storage.delete(key: _kShiftResetKey);
+      await _storage.delete(key: _kWeekResetKey);
+      await _storage.delete(key: _kMonthResetKey);
+    } catch (_) {}
+    await fetchEarnings(cafeId, isDemo: isDemo);
+  }
+
+  Future<bool> clearCafeOrdersDatabase(String cafeId, {bool isDemo = false}) async {
+    try {
+      if (SupabaseConfig.isConfigured && !isDemo) {
+        await Supabase.instance.client
+            .from('orders')
+            .delete()
+            .eq('cafe_id', cafeId);
+      }
+      await restoreAllViews(cafeId, isDemo: isDemo);
+      return true;
+    } catch (e) {
+      debugPrint('Error clearing orders database: $e');
+      return false;
+    }
   }
 
   void setRange(EarningsRange range, String cafeId, {bool isDemo = false}) {
@@ -153,23 +260,29 @@ class EarningsService extends ChangeNotifier {
     notifyListeners();
 
     final now = DateTime.now();
+    final defaultMonthStart = DateTime(now.year, now.month, 1);
+    final defaultWeekStart = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
+    final defaultTodayStart = DateTime(now.year, now.month, now.day);
+
+    final monthStart = _monthResetTime ?? defaultMonthStart;
+    final weekStart = _weekResetTime ?? defaultWeekStart;
+    final todayStart = _shiftResetTime ?? defaultTodayStart;
+
     DateTime rangeStart;
     DateTime rangeEnd = DateTime(now.year, now.month, now.day, 23, 59, 59);
 
     switch (_selectedRange) {
       case EarningsRange.today:
-        rangeStart = _shiftResetTime ?? DateTime(now.year, now.month, now.day);
+        rangeStart = todayStart;
         break;
       case EarningsRange.thisWeek:
-        // Beginning of current week (Monday 00:00:00)
-        rangeStart = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
+        rangeStart = weekStart;
         break;
       case EarningsRange.thisMonth:
-        // 1st of current month (00:00:00)
-        rangeStart = DateTime(now.year, now.month, 1);
+        rangeStart = monthStart;
         break;
       case EarningsRange.custom:
-        rangeStart = _customRange != null ? _customRange!.start : DateTime(now.year, now.month, now.day);
+        rangeStart = _customRange != null ? _customRange!.start : defaultTodayStart;
         rangeEnd = _customRange != null
             ? DateTime(_customRange!.end.year, _customRange!.end.month, _customRange!.end.day, 23, 59, 59)
             : rangeEnd;
@@ -185,11 +298,7 @@ class EarningsService extends ChangeNotifier {
     }
 
     try {
-      final monthStart = DateTime(now.year, now.month, 1);
-      final weekStart = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
-      final todayStart = _shiftResetTime ?? DateTime(now.year, now.month, now.day);
-
-      final queryStart = rangeStart.isBefore(monthStart) ? rangeStart : monthStart;
+      final queryStart = rangeStart.isBefore(defaultMonthStart) ? rangeStart : defaultMonthStart;
       final queryEnd = rangeEnd.isAfter(now) ? rangeEnd : now.add(const Duration(hours: 1));
 
       final res = await Supabase.instance.client
@@ -292,7 +401,7 @@ class EarningsService extends ChangeNotifier {
       // Build daily chart points
       _chartPoints = [];
       final daysCount = rangeEnd.difference(rangeStart).inDays + 1;
-      final displayLimit = daysCount > 31 ? 31 : daysCount;
+      final displayLimit = daysCount > 31 ? 31 : (daysCount < 1 ? 1 : daysCount);
 
       for (int i = 0; i < displayLimit; i++) {
         final d = rangeStart.add(Duration(days: i));
