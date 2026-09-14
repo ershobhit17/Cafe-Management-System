@@ -17,7 +17,9 @@ class CafeTable {
     return CafeTable(
       id: json['id'] as String,
       cafeId: json['cafe_id'] as String? ?? '',
-      tableNumber: (json['table_number'] as num?)?.toInt() ?? 1,
+      tableNumber: json['table_number'] is num
+          ? (json['table_number'] as num).toInt()
+          : (int.tryParse(json['table_number']?.toString() ?? '') ?? 1),
       qrToken: json['qr_token'] as String? ?? '',
       createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at']) : null,
     );

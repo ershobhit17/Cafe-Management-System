@@ -96,9 +96,13 @@ class OrderService extends ChangeNotifier {
 
       final List<OrderModel> loaded = [];
       for (var row in (res as List)) {
-        final rawItems = row['order_items'] as List? ?? [];
-        final items = rawItems.map((itemJson) => OrderItemModel.fromJson(itemJson)).toList();
-        loaded.add(OrderModel.fromJson(row, items: items));
+        final mapRow = Map<String, dynamic>.from(row as Map);
+        final rawItems = mapRow['order_items'] as List? ?? [];
+        final items = rawItems.map((itemJson) {
+          final mapItem = Map<String, dynamic>.from(itemJson as Map);
+          return OrderItemModel.fromJson(mapItem);
+        }).toList();
+        loaded.add(OrderModel.fromJson(mapRow, items: items));
       }
 
       // Check if new orders arrived to trigger badge & sound effect
@@ -155,13 +159,13 @@ class OrderService extends ChangeNotifier {
         )
         .subscribe();
 
-    // Start 10-second polling fallback so orders are NEVER missed
+    // Start 4-second polling fallback so orders are NEVER missed even if websocket sleeps
     startPeriodicRefresh(cafeId, isDemo: isDemo);
   }
 
   void startPeriodicRefresh(String cafeId, {bool isDemo = false}) {
     _pollingTimer?.cancel();
-    _pollingTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    _pollingTimer = Timer.periodic(const Duration(seconds: 4), (_) {
       fetchOrders(cafeId, isDemo: isDemo);
     });
   }
@@ -197,4 +201,68 @@ class OrderService extends ChangeNotifier {
     _realtimeChannel?.unsubscribe();
     super.dispose();
   }
+
+  Future<Map<String, dynamic>> closeDayAndCollect(String cafeId, {bool isDemo = false}) async {
+    _isLoading = true;
+    notifyListeners();
+
+    if (isDemo || !SupabaseConfig.isConfigured) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      final eligible = _orders.where((o) => o.status.toLowerCase() == 'served').toList();
+      double collected = 0;
+      for (var o in eligible) {
+        collected += o.totalAmount;
+        final idx = _orders.indexWhere((item) => item.id == o.id);
+        if (idx != -1) {
+          _orders[idx] = _orders[idx].copyWith(status: 'paid');
+        }
+      }
+      _isLoading = false;
+      notifyListeners();
+      return {
+        'success': true,
+        'orders_count': eligible.length,
+        'collected_amount': collected,
+      };
+    }
+
+    try {
+      final res = await Supabase.instance.client.rpc('close_day_and_collect', params: {
+        'p_cafe_id': cafeId,
+      });
+
+      await fetchOrders(cafeId, isDemo: isDemo);
+
+      if (res is Map) {
+        return Map<String, dynamic>.from(res);
+      }
+      return {'success': true, 'orders_count': 0, 'collected_amount': 0.0};
+    } catch (e) {
+      debugPrint('close_day_and_collect RPC error: $e, falling back to status update');
+      try {
+        final eligible = _orders.where((o) => o.status.toLowerCase() == 'served').toList();
+        double collected = 0;
+        for (var o in eligible) {
+          collected += o.totalAmount;
+          await Supabase.instance.client
+              .from('orders')
+              .update({'status': 'paid'})
+              .eq('id', o.id);
+        }
+        await fetchOrders(cafeId, isDemo: isDemo);
+        return {
+          'success': true,
+          'orders_count': eligible.length,
+          'collected_amount': collected,
+        };
+      } catch (err2) {
+        _errorMessage = 'Failed to collect orders: $err2';
+        return {'success': false, 'error': err2.toString()};
+      }
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
 }

@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 import '../../models/menu_item.dart';
 import '../../services/auth_service.dart';
 import '../../services/menu_service.dart';
+import '../../services/subscription_service.dart';
 import '../../widgets/cafe_food_image.dart';
+import '../subscription/subscription_plans_screen.dart';
 import 'edit_menu_item_dialog.dart';
 
 class MenuManagementScreen extends StatefulWidget {
@@ -30,7 +32,60 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
     context.read<MenuService>().fetchMenu(auth.currentCafeId, isDemo: auth.isDemoMode);
   }
 
+  void _showUpgradePlanDialog(BuildContext context, int currentLimit) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.upgrade, color: Color(0xFFFF7A00)),
+            SizedBox(width: 8),
+            Text('Plan Limit Reached'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'You have reached the maximum limit of $currentLimit menu items allowed on your current plan.',
+              style: const TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Upgrade to Growth (70 Items) or Enterprise (Unlimited) to expand your food and beverage catalog.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Later')),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF7A00),
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.flash_on, size: 16),
+            label: const Text('Upgrade Plan'),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SubscriptionPlansScreen()),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openAddDialog(BuildContext context, MenuService menuService, AuthService auth) {
+    final subService = context.read<SubscriptionService>();
+    if (subService.overview != null && subService.overview!.isItemsLimitReached) {
+      _showUpgradePlanDialog(context, subService.overview!.maxItems);
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (_) => EditMenuItemDialog(
@@ -46,8 +101,8 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
           offerPrice,
           imageUrl,
           isAvailable = true,
-        }) {
-          return menuService.saveItem(
+        }) async {
+          final ok = await menuService.saveItem(
             id: id,
             cafeId: cafeId,
             name: name,
@@ -59,6 +114,12 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
             isAvailable: isAvailable,
             isDemo: auth.isDemoMode,
           );
+          if (!ok && menuService.errorMessage != null && menuService.errorMessage!.contains('LIMIT_EXCEEDED')) {
+            if (context.mounted) {
+              _showUpgradePlanDialog(context, subService.overview?.maxItems ?? 30);
+            }
+          }
+          return ok;
         },
       ),
     );
@@ -102,16 +163,37 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
   void _confirmDelete(BuildContext context, MenuItem item, MenuService menuService, AuthService auth) {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete Menu Item?'),
-        content: Text('Are you sure you want to remove "${item.name}"?'),
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('Delete this menu item?'),
+        content: Text('Are you sure you want to delete "${item.name}"? This will safely remove it from the active menu.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-            onPressed: () {
-              menuService.deleteItem(item.id, isDemo: auth.isDemoMode);
-              Navigator.pop(context);
+            onPressed: () async {
+              Navigator.pop(dialogCtx);
+              final success = await menuService.deleteItem(item.id, isDemo: auth.isDemoMode);
+              if (context.mounted) {
+                if (success) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Menu item deleted successfully.'),
+                      backgroundColor: Colors.green,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(menuService.errorMessage ?? 'Failed to delete menu item.'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
             },
             child: const Text('Delete'),
           ),
@@ -136,7 +218,16 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Menu Management', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              auth.currentCafeName,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+            const Text('Menu Management', style: TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+        ),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _loadMenu),
         ],

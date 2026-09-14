@@ -14,15 +14,32 @@ class AuthService extends ChangeNotifier {
   String? _errorMessage;
   User? _currentUser;
   String? _cafeId;
-  String _cafeName = 'Aroma Artisan Cafe';
+  String _cafeName = 'Loading cafe...';
+  bool _isCafeProfileLoaded = false;
+  bool _isSuperAdmin = false;
+  bool _superAdminViewMode = true;
 
   bool get isLoading => _isLoading;
   bool get isAuthenticated => _isAuthenticated;
   bool get isDemoMode => _isDemoMode;
+  bool get isCafeProfileLoaded => _isCafeProfileLoaded;
+  bool get isSuperAdmin => _isSuperAdmin;
+  bool get isSuperAdminViewActive => _isSuperAdmin && _superAdminViewMode;
   String? get errorMessage => _errorMessage;
   User? get currentUser => _currentUser;
   String get currentCafeId => _cafeId ?? SupabaseConfig.demoCafeId;
   String get currentCafeName => _cafeName;
+  String get cafeName => _cafeName;
+
+  void toggleSuperAdminViewMode() {
+    _superAdminViewMode = !_superAdminViewMode;
+    notifyListeners();
+  }
+
+  void setSuperAdminViewMode(bool active) {
+    _superAdminViewMode = active;
+    notifyListeners();
+  }
 
   Future<void> _safeStorageWrite(String key, String? value) async {
     if (value == null) return;
@@ -62,6 +79,7 @@ class AuthService extends ChangeNotifier {
           _isAuthenticated = true;
           _isDemoMode = false;
           await _resolveCafeId();
+          await _checkSuperAdminStatus();
         } else {
           // Check secure storage for saved refresh token
           final savedToken = await _safeStorageRead(_keyToken);
@@ -73,6 +91,7 @@ class AuthService extends ChangeNotifier {
                 _isAuthenticated = true;
                 _isDemoMode = false;
                 await _resolveCafeId();
+                await _checkSuperAdminStatus();
               }
             } catch (e) {
               debugPrint('Saved token expired or invalid: $e');
@@ -93,6 +112,30 @@ class AuthService extends ChangeNotifier {
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  Future<void> _checkSuperAdminStatus() async {
+    final email = _currentUser?.email?.trim().toLowerCase();
+    if (email == 'ershobhit17@gmail.com') {
+      _isSuperAdmin = true;
+      _superAdminViewMode = true;
+      return;
+    }
+
+    if (SupabaseConfig.isConfigured && _currentUser != null) {
+      try {
+        final res = await Supabase.instance.client.rpc('is_super_admin');
+        _isSuperAdmin = (res == true);
+        if (_isSuperAdmin) {
+          _superAdminViewMode = true;
+        }
+      } catch (e) {
+        debugPrint('Error checking super admin status: $e');
+        _isSuperAdmin = (email == 'ershobhit17@gmail.com');
+      }
+    } else {
+      _isSuperAdmin = false;
     }
   }
 
@@ -119,6 +162,7 @@ class AuthService extends ChangeNotifier {
           }
 
           await _resolveCafeId();
+          await _checkSuperAdminStatus();
           _isLoading = false;
           notifyListeners();
           return true;
@@ -229,6 +273,7 @@ class AuthService extends ChangeNotifier {
     _isDemoMode = true;
     _cafeId = SupabaseConfig.demoCafeId;
     _cafeName = SupabaseConfig.demoCafeName;
+    _isCafeProfileLoaded = true;
     await _safeStorageWrite(_keyDemoAuth, 'true');
 
     _isLoading = false;
@@ -251,6 +296,8 @@ class AuthService extends ChangeNotifier {
       _currentUser = null;
       _isAuthenticated = false;
       _isDemoMode = false;
+      _isSuperAdmin = false;
+      _superAdminViewMode = true;
       _cafeId = null;
       _isLoading = false;
       notifyListeners();
@@ -288,46 +335,35 @@ class AuthService extends ChangeNotifier {
     if (!SupabaseConfig.isConfigured || _currentUser == null) {
       _cafeId = SupabaseConfig.demoCafeId;
       _cafeName = SupabaseConfig.demoCafeName;
+      _isCafeProfileLoaded = true;
       return;
     }
 
     try {
-      var data = await Supabase.instance.client
+      final data = await Supabase.instance.client
           .from('cafes')
           .select('id, name')
           .eq('owner_id', _currentUser!.id)
           .maybeSingle();
 
-      if (data == null) {
-        // Claim the unowned seed cafe if available
-        final unowned = await Supabase.instance.client
-            .from('cafes')
-            .select('id, name')
-            .filter('owner_id', 'is', 'null')
-            .maybeSingle();
-
-        if (unowned != null && unowned['id'] != null) {
-          final claimId = unowned['id'] as String;
-          await Supabase.instance.client
-              .from('cafes')
-              .update({'owner_id': _currentUser!.id})
-              .eq('id', claimId);
-          data = unowned;
-        }
-      }
+      final metaCafeName = (_currentUser!.userMetadata?['cafe_name'] as String?)?.trim();
 
       if (data != null && data['id'] != null) {
         _cafeId = data['id'] as String;
-        _cafeName = (data['name'] as String?) ?? 'Aroma Artisan Cafe';
+        final dbName = (data['name'] as String?)?.trim();
+        _cafeName = (dbName != null && dbName.isNotEmpty) ? dbName : (metaCafeName ?? 'My Cafe');
+        _isCafeProfileLoaded = true;
       } else {
         // Auto-create initial cafe entry for this owner if none exists
+        final initialName = (metaCafeName != null && metaCafeName.isNotEmpty) ? metaCafeName : 'My Cafe';
         final inserted = await Supabase.instance.client.from('cafes').insert({
-          'name': 'My Cafe',
+          'name': initialName,
           'owner_id': _currentUser!.id,
         }).select('id, name').single();
 
         _cafeId = inserted['id'] as String;
-        _cafeName = (inserted['name'] as String?) ?? 'My Cafe';
+        _cafeName = (inserted['name'] as String?) ?? initialName;
+        _isCafeProfileLoaded = true;
 
         // Add 5 tables
         final List<Map<String, dynamic>> defaultTables = [];
@@ -338,8 +374,32 @@ class AuthService extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('Error resolving cafe ID: $e');
-      _cafeId = SupabaseConfig.demoCafeId;
-      _cafeName = SupabaseConfig.demoCafeName;
+      _errorMessage = 'Your cafe profile could not be loaded.';
+      _cafeName = 'Your cafe profile could not be loaded.';
+      _isCafeProfileLoaded = false;
     }
   }
+
+  Future<bool> updateCafeName(String newName) async {
+    final trimmed = newName.trim();
+    if (trimmed.isEmpty) return false;
+    _cafeName = trimmed;
+    notifyListeners();
+
+    if (!SupabaseConfig.isConfigured || _isDemoMode || _cafeId == null) {
+      return true;
+    }
+
+    try {
+      await Supabase.instance.client
+          .from('cafes')
+          .update({'name': trimmed})
+          .eq('id', _cafeId!);
+      return true;
+    } catch (e) {
+      debugPrint('Error updating cafe name: $e');
+      return false;
+    }
+  }
+
 }

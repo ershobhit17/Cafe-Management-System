@@ -12,6 +12,11 @@ class SupabaseConfig {
   static const String demoCafeName = 'Aroma Artisan Cafe';
   static const String customerWebBaseUrl = 'https://cafe-management-system-nbi5.onrender.com';
 
+  // Admin UPI configuration for receiving SaaS subscription payments
+  // (Configurable via environment or deployment settings to protect personal financial details)
+  static const String adminUpiId = String.fromEnvironment('ADMIN_UPI_ID', defaultValue: 'snapserve.pay@upi');
+  static const String adminPayeeName = String.fromEnvironment('ADMIN_PAYEE_NAME', defaultValue: 'Snap Serve Billing');
+
   static bool get isConfigured {
     return supabaseUrl.isNotEmpty &&
         !supabaseUrl.contains('YOUR_PROJECT') &&

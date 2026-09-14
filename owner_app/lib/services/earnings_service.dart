@@ -102,7 +102,7 @@ class EarningsService extends ChangeNotifier {
       final savedWeek = await _storage.read(key: _kWeekResetKey);
       if (savedWeek != null) {
         final parsed = DateTime.tryParse(savedWeek);
-        final currentWeekStart = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
+        final currentWeekStart = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 6));
         if (parsed != null && (parsed.isAfter(currentWeekStart) || parsed.isAtSameMomentAs(currentWeekStart))) {
           _weekResetTime = parsed;
         } else {
@@ -261,7 +261,8 @@ class EarningsService extends ChangeNotifier {
 
     final now = DateTime.now();
     final defaultMonthStart = DateTime(now.year, now.month, 1);
-    final defaultWeekStart = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
+    // Use rolling 7-day window (past 7 days including today) so Sunday/yesterday sales are always included in weekly earnings
+    final defaultWeekStart = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 6));
     final defaultTodayStart = DateTime(now.year, now.month, now.day);
 
     final monthStart = _monthResetTime ?? defaultMonthStart;
@@ -298,8 +299,11 @@ class EarningsService extends ChangeNotifier {
     }
 
     try {
-      final queryStart = rangeStart.isBefore(defaultMonthStart) ? rangeStart : defaultMonthStart;
-      final queryEnd = rangeEnd.isAfter(now) ? rangeEnd : now.add(const Duration(hours: 1));
+      // Ensure query covers the earliest period start needed
+      final earliestStart = [rangeStart, weekStart, monthStart, todayStart]
+          .reduce((curr, min) => curr.isBefore(min) ? curr : min);
+      final queryStart = earliestStart;
+      final queryEnd = rangeEnd.isAfter(now) ? rangeEnd : now.add(const Duration(hours: 24));
 
       final res = await Supabase.instance.client
           .from('orders')
@@ -330,7 +334,10 @@ class EarningsService extends ChangeNotifier {
       final Map<String, List<double>> dayMap = {};
 
       for (var row in ordersList) {
-        final amt = (row['total_amount'] as num?)?.toDouble() ?? 0.0;
+        final rawAmt = row['total_amount'];
+        final amt = rawAmt is num
+            ? rawAmt.toDouble()
+            : (double.tryParse(rawAmt?.toString() ?? '') ?? 0.0);
         final status = (row['status'] as String?)?.toLowerCase() ?? 'pending';
         final dt = DateTime.tryParse(row['created_at'] as String)?.toLocal() ?? DateTime.now();
 

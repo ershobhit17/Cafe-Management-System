@@ -46,14 +46,26 @@ class MenuService extends ChangeNotifier {
     }
 
     try {
-      final data = await Supabase.instance.client
-          .from('menu_items')
-          .select('*')
-          .eq('cafe_id', cafeId)
-          .order('category')
-          .order('name');
+      dynamic data;
+      try {
+        data = await Supabase.instance.client
+            .from('menu_items')
+            .select('*')
+            .eq('cafe_id', cafeId)
+            .eq('is_deleted', false)
+            .order('category')
+            .order('name');
+      } catch (_) {
+        data = await Supabase.instance.client
+            .from('menu_items')
+            .select('*')
+            .eq('cafe_id', cafeId)
+            .order('category')
+            .order('name');
+      }
 
-      _items = (data as List).map((json) => MenuItem.fromJson(json)).toList();
+      final rawList = (data as List).map((json) => MenuItem.fromJson(json)).toList();
+      _items = rawList;
     } catch (e) {
       _errorMessage = 'Failed to load menu: $e';
       _items = List.from(_demoItems);
@@ -177,12 +189,62 @@ class MenuService extends ChangeNotifier {
     }
 
     try {
-      await Supabase.instance.client.from('menu_items').delete().eq('id', itemId);
-      _items.removeWhere((i) => i.id == itemId);
-      notifyListeners();
-      return true;
+      // 1. Attempt safe deletion / archiving via RPC
+      try {
+        final res = await Supabase.instance.client.rpc('delete_or_archive_menu_item', params: {
+          'p_item_id': itemId,
+        });
+        debugPrint('delete_or_archive_menu_item RPC result: $res');
+        _items.removeWhere((i) => i.id == itemId);
+        notifyListeners();
+        return true;
+      } catch (rpcErr) {
+        debugPrint('RPC error: $rpcErr. Trying direct column update.');
+      }
+
+      // 2. Attempt updating is_deleted flag if column exists
+      try {
+        await Supabase.instance.client
+            .from('menu_items')
+            .update({'is_deleted': true, 'is_available': false})
+            .eq('id', itemId);
+        _items.removeWhere((i) => i.id == itemId);
+        notifyListeners();
+        return true;
+      } catch (colErr) {
+        debugPrint('is_deleted column not yet added: $colErr.');
+      }
+
+      // 3. Attempt hard delete ONLY if item has zero order references
+      try {
+        await Supabase.instance.client.from('menu_items').delete().eq('id', itemId);
+        _items.removeWhere((i) => i.id == itemId);
+        notifyListeners();
+        return true;
+      } on PostgrestException catch (pgErr) {
+        if (pgErr.code == '23503' || pgErr.message.contains('order_items_menu_item_id_fkey')) {
+          // Safely protect historical orders: mark out of stock
+          try {
+            await Supabase.instance.client
+                .from('menu_items')
+                .update({'is_available': false})
+                .eq('id', itemId);
+            final idx = _items.indexWhere((i) => i.id == itemId);
+            if (idx != -1) {
+              _items[idx] = _items[idx].copyWith(isAvailable: false);
+              notifyListeners();
+            }
+          } catch (_) {}
+
+          _errorMessage =
+              'This dish is linked to past order history. Please execute the Supabase SQL migration to enable safe archiving. It has been marked Out of Stock.';
+          notifyListeners();
+          return false;
+        }
+        rethrow;
+      }
     } catch (e) {
-      _errorMessage = 'Failed to delete item: $e';
+      _errorMessage = 'Failed to delete item. Please check connection.';
       notifyListeners();
       return false;
     }

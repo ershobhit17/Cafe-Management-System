@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/supabase_config.dart';
+import 'screens/admin/super_admin_dashboard_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/home/main_nav_screen.dart';
 import 'services/auth_service.dart';
@@ -10,21 +11,21 @@ import 'services/earnings_service.dart';
 import 'services/menu_service.dart';
 import 'services/order_service.dart';
 import 'services/sound_service.dart';
+import 'services/subscription_service.dart';
+import 'services/super_admin_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Supabase if configured with cloud credentials
-  if (SupabaseConfig.isConfigured) {
-    try {
-      await Supabase.initialize(
-        url: SupabaseConfig.supabaseUrl,
-        anonKey: SupabaseConfig.supabaseAnonKey,
-      );
-      debugPrint('Supabase initialized successfully.');
-    } catch (e) {
-      debugPrint('Supabase init warning: $e');
-    }
+  // Initialize Supabase with cloud credentials
+  try {
+    await Supabase.initialize(
+      url: SupabaseConfig.supabaseUrl,
+      publishableKey: SupabaseConfig.supabaseAnonKey,
+    );
+    debugPrint('Supabase initialized successfully.');
+  } catch (e) {
+    debugPrint('Supabase init warning: $e');
   }
 
   runApp(
@@ -35,6 +36,8 @@ void main() async {
         ChangeNotifierProvider(create: (_) => MenuService()),
         ChangeNotifierProvider(create: (_) => OrderService()),
         ChangeNotifierProvider(create: (_) => EarningsService()),
+        ChangeNotifierProvider(create: (_) => SubscriptionService()),
+        ChangeNotifierProvider(create: (_) => SuperAdminService()),
         ChangeNotifierProvider(create: (_) => SoundService.instance),
       ],
       child: const CafeOwnerApp(),
@@ -51,12 +54,14 @@ class CafeOwnerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Cafe Owner Portal',
+      title: 'Snap Serve',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.system,
       // Light Theme
       theme: ThemeData(
         useMaterial3: true,
+        fontFamily: 'Segoe UI',
+        fontFamilyFallback: const ['Roboto', 'Arial', 'sans-serif'],
         brightness: Brightness.light,
         colorScheme: ColorScheme.fromSeed(
           seedColor: primaryOrange,
@@ -83,6 +88,8 @@ class CafeOwnerApp extends StatelessWidget {
       // Dark Theme
       darkTheme: ThemeData(
         useMaterial3: true,
+        fontFamily: 'Segoe UI',
+        fontFamilyFallback: const ['Roboto', 'Arial', 'sans-serif'],
         brightness: Brightness.dark,
         colorScheme: ColorScheme.fromSeed(
           seedColor: primaryOrangeLight,
@@ -127,6 +134,9 @@ class AuthGate extends StatelessWidget {
     }
 
     if (auth.isAuthenticated) {
+      if (auth.isSuperAdmin && auth.isSuperAdminViewActive) {
+        return const SuperAdminDashboardScreen();
+      }
       return const MainNavScreen();
     }
 

@@ -84,20 +84,32 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   // Brand Icon & Header
                   Center(
                     child: Container(
-                      width: 80,
-                      height: 80,
+                      width: 88,
+                      height: 88,
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFF7A00).withValues(alpha: 0.15),
-                        shape: BoxShape.circle,
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(22),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFFF7A00).withValues(alpha: 0.35),
+                            blurRadius: 18,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
                       ),
-                      child: const Center(
-                        child: Text('☕', style: TextStyle(fontSize: 40)),
+                      clipBehavior: Clip.antiAlias,
+                      child: Image.asset(
+                        'assets/images/app_logo.png',
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const Center(
+                          child: Text('☕', style: TextStyle(fontSize: 40)),
+                        ),
                       ),
                     ),
                   ),
                   const SizedBox(height: 18),
                   Text(
-                    'Cafe Owner Portal',
+                    'Snap Serve',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.headlineMedium?.copyWith(
                       fontWeight: FontWeight.bold,

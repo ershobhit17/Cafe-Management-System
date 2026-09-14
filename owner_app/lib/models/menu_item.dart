@@ -24,17 +24,27 @@ class MenuItem {
   });
 
   factory MenuItem.fromJson(Map<String, dynamic> json) {
+    final rawPrice = json['price'];
+    final double price = rawPrice is num
+        ? rawPrice.toDouble()
+        : (double.tryParse(rawPrice?.toString() ?? '') ?? 0.0);
+
+    final rawOffer = json['offer_price'];
+    final double? offerPrice = rawOffer != null
+        ? (rawOffer is num ? rawOffer.toDouble() : double.tryParse(rawOffer.toString()))
+        : null;
+
     return MenuItem(
-      id: json['id'] as String,
+      id: json['id'] as String? ?? '',
       cafeId: json['cafe_id'] as String? ?? '',
       name: json['name'] as String? ?? 'Untitled Item',
       description: json['description'] as String?,
       category: json['category'] as String? ?? 'General',
-      price: (json['price'] as num?)?.toDouble() ?? 0.0,
-      offerPrice: (json['offer_price'] as num?)?.toDouble(),
+      price: price,
+      offerPrice: offerPrice,
       imageUrl: json['image_url'] as String?,
       isAvailable: json['is_available'] as bool? ?? true,
-      createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at']) : null,
+      createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at'].toString()) : null,
     );
   }
 

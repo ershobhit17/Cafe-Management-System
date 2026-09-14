@@ -212,50 +212,6 @@ class _EarningsScreenState extends State<EarningsScreen> {
     );
   }
 
-  void _confirmClearDatabaseOrders() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.red),
-            SizedBox(width: 8),
-            Text('Delete All Orders?'),
-          ],
-        ),
-        content: const Text(
-          '⚠️ WARNING: This will permanently delete all past orders for your cafe from the cloud database.\n\nUse this only if you placed test orders while setting up your cafe.\n\nThis cannot be undone!',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.shade700,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () async {
-              Navigator.pop(ctx);
-              final auth = context.read<AuthService>();
-              final success = await context.read<EarningsService>().clearCafeOrdersDatabase(auth.currentCafeId, isDemo: auth.isDemoMode);
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    backgroundColor: success ? Colors.green.shade800 : Colors.red.shade800,
-                    content: Text(success ? 'Database orders permanently cleared!' : 'Failed to clear database orders.'),
-                  ),
-                );
-              }
-            },
-            child: const Text('Delete Database Orders'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showResetOptionsSheet() {
     final earnings = context.read<EarningsService>();
     final auth = context.read<AuthService>();
@@ -359,20 +315,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
                   },
                 ),
               ],
-              const Divider(),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
-                  child: const Icon(Icons.delete_forever, color: Colors.red, size: 20),
-                ),
-                title: const Text('Clear Test Orders from Database', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.red)),
-                subtitle: const Text('Permanently wipes test orders from Supabase'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _confirmClearDatabaseOrders();
-                },
-              ),
+
             ],
           ),
         ),
@@ -431,7 +374,16 @@ class _EarningsScreenState extends State<EarningsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Earnings & Revenue', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              auth.currentCafeName,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+            const Text('Earnings & Revenue', style: TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.tune),

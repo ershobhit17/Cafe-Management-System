@@ -32,3 +32,8 @@ desktop.ini
 *.pyc
 *.apk
 *.aab
+
+# Sensitive Personal Assets & Secrets
+**/admin_upi_qr.jpg
+.env
+.env.*

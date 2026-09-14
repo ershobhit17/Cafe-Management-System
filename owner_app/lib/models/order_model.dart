@@ -23,13 +23,23 @@ class OrderItemModel {
       itemName = json['name'] as String;
     }
 
+    final rawPrice = json['price_at_order_time'];
+    final double price = rawPrice is num
+        ? rawPrice.toDouble()
+        : (double.tryParse(rawPrice?.toString() ?? '') ?? 0.0);
+
+    final rawQty = json['quantity'];
+    final int qty = rawQty is num
+        ? rawQty.toInt()
+        : (int.tryParse(rawQty?.toString() ?? '') ?? 1);
+
     return OrderItemModel(
       id: json['id'] as String? ?? '',
       orderId: json['order_id'] as String? ?? '',
       menuItemId: json['menu_item_id'] as String? ?? '',
       menuItemName: itemName,
-      quantity: (json['quantity'] as num?)?.toInt() ?? 1,
-      priceAtOrderTime: (json['price_at_order_time'] as num?)?.toDouble() ?? 0.0,
+      quantity: qty,
+      priceAtOrderTime: price,
     );
   }
 
@@ -41,9 +51,10 @@ class OrderModel {
   final String cafeId;
   final String tableId;
   final int tableNumber;
-  final String status; // 'pending' | 'preparing' | 'served' | 'paid'
+  final String status; // 'placed' | 'pending' | 'preparing' | 'ready' | 'served' | 'paid' | 'cancelled'
   final double totalAmount;
   final DateTime createdAt;
+  final String? notes;
   final List<OrderItemModel> items;
 
   OrderModel({
@@ -54,26 +65,39 @@ class OrderModel {
     required this.status,
     required this.totalAmount,
     required this.createdAt,
+    this.notes,
     this.items = const [],
   });
 
   factory OrderModel.fromJson(Map<String, dynamic> json, {List<OrderItemModel>? items}) {
     int tableNum = 1;
     if (json['tables'] != null && json['tables'] is Map) {
-      tableNum = (json['tables']['table_number'] as num?)?.toInt() ?? 1;
+      final rawNum = json['tables']['table_number'];
+      tableNum = rawNum is num
+          ? rawNum.toInt()
+          : (int.tryParse(rawNum?.toString() ?? '') ?? 1);
     } else if (json['table_number'] != null) {
-      tableNum = (json['table_number'] as num).toInt();
+      final rawNum = json['table_number'];
+      tableNum = rawNum is num
+          ? rawNum.toInt()
+          : (int.tryParse(rawNum?.toString() ?? '') ?? 1);
     }
 
+    final rawTotal = json['total_amount'];
+    final double total = rawTotal is num
+        ? rawTotal.toDouble()
+        : (double.tryParse(rawTotal?.toString() ?? '') ?? 0.0);
+
     return OrderModel(
-      id: json['id'] as String,
+      id: json['id'] as String? ?? '',
       cafeId: json['cafe_id'] as String? ?? '',
       tableId: json['table_id'] as String? ?? '',
       tableNumber: tableNum,
       status: json['status'] as String? ?? 'pending',
-      totalAmount: (json['total_amount'] as num?)?.toDouble() ?? 0.0,
+      totalAmount: total,
+      notes: json['notes'] as String?,
       createdAt: json['created_at'] != null
-          ? DateTime.tryParse(json['created_at']) ?? DateTime.now()
+          ? DateTime.tryParse(json['created_at'].toString()) ?? DateTime.now()
           : DateTime.now(),
       items: items ?? [],
     );
@@ -82,6 +106,7 @@ class OrderModel {
   OrderModel copyWith({
     String? status,
     double? totalAmount,
+    String? notes,
     List<OrderItemModel>? items,
   }) {
     return OrderModel(
@@ -91,6 +116,7 @@ class OrderModel {
       tableNumber: tableNumber,
       status: status ?? this.status,
       totalAmount: totalAmount ?? this.totalAmount,
+      notes: notes ?? this.notes,
       createdAt: createdAt,
       items: items ?? this.items,
     );

@@ -87,3 +87,51 @@ You can run it on Windows desktop, Chrome, Android, or iOS!
 - **Zero-Trust Client Pricing**: The browser only sends `menu_item_id` and `quantity` to the `place_order` Postgres function (`SECURITY DEFINER`). Prices and totals are looked up and computed strictly inside the database. Tampering with JavaScript client-side prices has zero effect.
 - **Strict Row Level Security (RLS)**: Anonymous users cannot insert into or update the `orders` or `order_items` tables directly.
 - **Unguessable QR Tokens**: Tables use UUID `qr_token`s in the URL rather than predictable integers, protecting against table spoofing.
+
+---
+
+## 💎 Tiered Subscription Engine & Quotas
+
+SnapServe implements a strict database-level subscription enforcement engine via PostgreSQL triggers:
+
+| Tier | Price | Dining Tables Quota | Menu Items Quota | KDS & Thermal KOT |
+| :--- | :--- | :--- | :--- | :--- |
+| **Starter** | ₹399 / mo | Up to 5 Tables | Up to 30 Active Items | Included |
+| **Growth** *(Popular)* | ₹799 / mo | Up to 20 Tables | Up to 70 Active Items | Included |
+| **Enterprise / Pro** | ₹1,499 / mo | Unlimited | Unlimited | Priority Support |
+
+### Limit Enforcement Triggers:
+- `trg_enforce_table_limit`: Blocks creation of the (N+1)th table if the active plan quota is exceeded.
+- `trg_enforce_menu_item_limit`: Blocks creation of the (N+1)th menu item if the active plan quota is exceeded.
+- Error Code: `LIMIT_EXCEEDED` with actionable upgrade guidance.
+
+---
+
+## 💳 PhonePe UPI & Payment Verification Engine
+
+Cafe owners can upgrade their subscription plan seamlessly using PhonePe UPI:
+1. **Dynamic UPI Intent & QR**: Generates dynamic QR code and PhonePe VPA (`snapserve.pay@ybl`).
+2. **12-Digit Bank UTR Verification**: Validates transaction reference number with strict cross-restaurant idempotency to prevent duplicate claims.
+3. **Instant Activation**: Automatically extends cafe validity by 30 days and logs audit history in `payment_transactions`.
+
+### Environment Variables:
+Configure the following in your deployment or Supabase environment if connecting directly to PhonePe PG Gateway:
+
+| Variable | Description | Example / Default |
+| :--- | :--- | :--- |
+| `PHONEPE_MERCHANT_ID` | PhonePe Merchant Identifier | `M22XXXXXXXX` |
+| `PHONEPE_SALT_KEY` | Salt Key for HMAC-SHA256 signature | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
+| `PHONEPE_SALT_INDEX` | Key index of Salt Key | `1` |
+| `PHONEPE_ENV` | Gateway Environment (`UAT` or `PROD`) | `PROD` |
+| `PHONEPE_VPA` | Merchant Virtual Payment Address | `snapserve.pay@ybl` |
+
+---
+
+## 👨‍🍳 Kitchen Display System (KDS) & Thermal KOT Printing
+
+- **Realtime KDS Station**: High-contrast dark station view (`/kitchen` or via AppBar button) showing active tickets sorted FIFO with live elapsed time tickers (< 10m green, 10-20m amber, > 20m red).
+- **5-Stage Order Lifecycle**:
+  `PLACED / PENDING` ➔ `ACCEPTED / PREPARING` ➔ `READY FOR PICKUP` ➔ `SERVED` ➔ `PAID & CLOSED` (or `CANCELLED`).
+- **Thermal KOT Printer**: 1-click printing supporting standard 80mm and 58mm POS thermal receipt printers (`pdf` / `printing` integration).
+- **Customer Special Instructions**: Cooking notes entered by customers in the web cart drawer automatically appear in bold on the KDS and print directly on the KOT ticket.
+

@@ -58,8 +58,6 @@ class SoundService extends ChangeNotifier {
     _lastPlayedTime = now;
 
     try {
-      await _player.stop();
-      await _player.setReleaseMode(ReleaseMode.stop);
       await _player.setVolume(1.0);
       await _player.play(AssetSource(orderBellAsset));
       debugPrint('🔔 Order alert sound played successfully.');
@@ -68,19 +66,22 @@ class SoundService extends ChangeNotifier {
       // Fallback try with alias path if needed
       try {
         await _player.play(AssetSource('sounds/order_bell.wav'));
-      } catch (_) {}
+      } catch (e2) {
+        debugPrint('Fallback audio error: $e2');
+      }
     }
   }
 
   /// Preview sound immediately for settings testing
   Future<void> testSound() async {
     try {
-      await _player.stop();
-      await _player.setReleaseMode(ReleaseMode.stop);
       await _player.setVolume(1.0);
       await _player.play(AssetSource(orderBellAsset));
     } catch (e) {
       debugPrint('Error testing sound: $e');
+      try {
+        await _player.play(AssetSource('sounds/order_bell.wav'));
+      } catch (_) {}
     }
   }
 

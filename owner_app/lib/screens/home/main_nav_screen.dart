@@ -7,7 +7,9 @@ import '../../services/sound_service.dart';
 import '../auth/login_screen.dart';
 import '../dashboard/live_orders_screen.dart';
 import '../earnings/earnings_screen.dart';
+import '../kitchen/kitchen_display_screen.dart';
 import '../menu/menu_management_screen.dart';
+import '../subscription/subscription_plans_screen.dart';
 import '../tables/tables_qr_screen.dart';
 
 class MainNavScreen extends StatefulWidget {
@@ -34,24 +36,108 @@ class _MainNavScreenState extends State<MainNavScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Cafe Settings'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.storefront, color: Color(0xFFFF7A00)),
-              title: const Text('Aroma Artisan Cafe'),
-              subtitle: Text('Cafe ID: ${auth.currentCafeId.substring(0, 8)}...'),
-            ),
-            const Divider(),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.security, color: Colors.blue),
-              title: const Text('Session Security'),
-              subtitle: Text(auth.isDemoMode ? 'Demo Mode Active' : 'Persistent Supabase Token'),
-            ),
-            const Divider(),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFFF7A00).withValues(alpha: 0.25),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Image.asset(
+                    'assets/images/app_logo.png',
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const CircleAvatar(
+                      backgroundColor: Color(0xFFFFF3E0),
+                      child: Icon(Icons.storefront, color: Color(0xFFFF7A00)),
+                    ),
+                  ),
+                ),
+                title: Text(
+                  auth.currentCafeName,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                subtitle: Text(auth.currentUser?.email ?? (auth.isDemoMode ? 'Demo Mode' : 'Cafe Owner Account')),
+              ),
+              const Divider(),
+              if (auth.isSuperAdmin) ...[
+                Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF7A00).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFFF7A00).withOpacity(0.3)),
+                  ),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    leading: const CircleAvatar(
+                      backgroundColor: Color(0xFFFF7A00),
+                      child: Icon(Icons.admin_panel_settings, color: Colors.white),
+                    ),
+                    title: const Text(
+                      'Super Admin Console',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF7A00)),
+                    ),
+                    subtitle: const Text(
+                      'Systematic access to all cafes, plans & approvals',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Color(0xFFFF7A00)),
+                    onTap: () {
+                      Navigator.pop(context);
+                      auth.setSuperAdminViewMode(true);
+                    },
+                  ),
+                ),
+                const Divider(),
+              ],
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const CircleAvatar(
+                  backgroundColor: Color(0xFFFFF3E0),
+                  child: Icon(Icons.rocket_launch, color: Color(0xFFFF7A00)),
+                ),
+                title: const Text('Upgrade & Expand Plan', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                subtitle: const Text('Expand table capacity, menu & premium growth features', style: TextStyle(fontSize: 12)),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SubscriptionPlansScreen()),
+                  );
+                },
+              ),
+              const Divider(),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const CircleAvatar(
+                  backgroundColor: Color(0xFFFFF3E0),
+                  child: Icon(Icons.soup_kitchen, color: Color(0xFFFF7A00)),
+                ),
+                title: const Text('Kitchen Display (KDS)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                subtitle: const Text('Live order tickets & thermal KOT print station', style: TextStyle(fontSize: 12)),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const KitchenDisplayScreen()),
+                  );
+                },
+              ),
+              const Divider(),
             Consumer<SoundService>(
               builder: (context, sound, _) => Column(
                 children: [
@@ -81,7 +167,8 @@ class _MainNavScreenState extends State<MainNavScreen> {
             ),
           ],
         ),
-        actions: [
+      ),
+      actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
@@ -107,13 +194,55 @@ class _MainNavScreenState extends State<MainNavScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthService>();
+    final isSuperAdmin = auth.isSuperAdmin;
     final orderService = context.watch<OrderService>();
     final activeOrdersCount = orderService.liveOrders.length;
 
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _screens,
+      body: Column(
+        children: [
+          if (isSuperAdmin)
+            Container(
+              color: const Color(0xFF1E293B),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: SafeArea(
+                bottom: false,
+                child: Row(
+                  children: [
+                    const Icon(Icons.admin_panel_settings, color: Color(0xFFFF7A00), size: 18),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Viewing as Cafe Owner (Super Admin Mode)',
+                        style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () => auth.setSuperAdminViewMode(true),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF7A00),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          'Admin Console',
+                          style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          Expanded(
+            child: IndexedStack(
+              index: _currentIndex,
+              children: _screens,
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,

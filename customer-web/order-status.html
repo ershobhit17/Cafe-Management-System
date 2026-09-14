@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="description" content="Live Order Tracking - Watch your order being prepared in real time." />
   <meta name="theme-color" content="#FF7A00" />
-  <title>Live Order Status - Aroma Artisan Cafe</title>
+  <title>Live Order Status - Snap Serve</title>
+  <link rel="icon" type="image/png" href="app_logo.png" />
   <link rel="stylesheet" href="style.css" />
   <!-- Supabase Client CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -16,9 +17,11 @@
     <div class="container topbar-content">
       <div class="brand-wrapper">
         <a id="backToMenuLink" href="index.html" style="text-decoration: none; display: flex; align-items: center; gap: 8px; color: inherit;">
-          <div class="brand-icon">←</div>
+          <div class="brand-icon" style="padding: 0; overflow: hidden; background: #000; box-shadow: 0 2px 8px rgba(255, 122, 0, 0.25);">
+            <img src="app_logo.png" alt="Snap Serve" style="width: 100%; height: 100%; object-fit: cover; border-radius: inherit;" onerror="this.outerHTML='☕'" />
+          </div>
           <div>
-            <div class="brand-name">Aroma Artisan Cafe</div>
+            <div class="brand-name" id="statusCafeBrandName">Loading Cafe...</div>
             <div class="table-badge" id="orderTableBadge">Table #...</div>
           </div>
         </a>
@@ -52,42 +55,64 @@
         </div>
 
         <!-- Step 3 -->
-        <div class="step-item" id="step-served">
+        <div class="step-item" id="step-ready">
           <div class="step-circle">3</div>
-          <div class="step-label">Served</div>
+          <div class="step-label">Ready</div>
         </div>
 
         <!-- Step 4 -->
-        <div class="step-item" id="step-paid">
+        <div class="step-item" id="step-served">
           <div class="step-circle">4</div>
+          <div class="step-label">Served</div>
+        </div>
+
+        <!-- Step 5 -->
+        <div class="step-item" id="step-paid">
+          <div class="step-circle">5</div>
           <div class="step-label">Paid</div>
         </div>
       </div>
 
-      <!-- Order Receipt Info -->
-      <div class="receipt-box">
-        <div class="receipt-row">
+      <!-- Order Receipt Info (Printable) -->
+      <div class="receipt-paper" id="statusPrintableReceipt" style="margin-top: 20px;">
+        <div class="receipt-header">
+          <div class="receipt-cafe-name" id="receiptBrandNameHeader">SnapServe Cafe</div>
+          <div class="receipt-subtitle">Order Summary & Customer Receipt</div>
+        </div>
+        <div class="receipt-row" style="display: flex; justify-content: space-between; margin-bottom: 6px;">
           <span style="color: var(--color-text-secondary);">Order Reference</span>
           <span style="font-family: monospace; font-weight: 700;" id="receiptOrderId">#...</span>
         </div>
-        <div class="receipt-row">
+        <div class="receipt-row" style="display: flex; justify-content: space-between; margin-bottom: 6px;">
           <span style="color: var(--color-text-secondary);">Table Allocation</span>
           <span style="font-weight: 600;" id="receiptTableNum">Table #...</span>
         </div>
-        <div class="receipt-row">
+        <div class="receipt-row" style="display: flex; justify-content: space-between; margin-bottom: 6px;">
           <span style="color: var(--color-text-secondary);">Order Placed At</span>
           <span id="receiptTime">Just now</span>
         </div>
-        <div class="receipt-row" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--color-card-border);">
-          <span style="font-weight: 700;">Total Amount</span>
-          <span style="font-weight: 800; color: var(--color-primary);" id="receiptTotal">₹0</span>
+        <div class="receipt-divider"></div>
+        <div id="statusReceiptItems">
+          <!-- Items injected if available -->
+        </div>
+        <div class="receipt-total-row">
+          <span>Total Amount</span>
+          <span id="receiptTotal">₹0</span>
+        </div>
+        <div class="receipt-footer-thanks">
+          <p style="font-weight: 700;">Thank you for dining with us!</p>
         </div>
       </div>
 
-      <!-- Order More Items Button -->
-      <button id="orderMoreBtn" class="order-again-btn">
-        + Order More Items for this Table
-      </button>
+      <!-- Actions (Hidden in Print) -->
+      <div class="receipt-actions no-print" style="flex-direction: column; gap: 10px;">
+        <button id="printStatusReceiptBtn" class="receipt-print-btn" style="width: 100%;">
+          <span>🖨️ Print Receipt / Bill</span>
+        </button>
+        <button id="orderMoreBtn" class="order-again-btn" style="margin-top: 0;">
+          + Order More Items for this Table
+        </button>
+      </div>
     </div>
   </main>
 

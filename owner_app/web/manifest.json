@@ -1,11 +1,11 @@
 {
-    "name": "owner_app",
-    "short_name": "owner_app",
+    "name": "Snap Serve",
+    "short_name": "Snap Serve",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#000000",
+    "theme_color": "#FF7A00",
+    "description": "Snap Serve - Smart Cafe Management & Live Ordering System",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

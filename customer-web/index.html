@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="description" content="Seamless QR-Based Cafe Ordering - Browse delicious coffee, meals and desserts." />
   <meta name="theme-color" content="#FF7A00" />
-  <title>Aroma Artisan Cafe - Menu & Ordering</title>
+  <title>Snap Serve - Menu & Ordering</title>
+  <link rel="icon" type="image/png" href="app_logo.png" />
   <link rel="stylesheet" href="style.css" />
   <!-- Supabase Client CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -15,18 +16,35 @@
   <header class="topbar">
     <div class="container topbar-content">
       <div class="brand-wrapper">
-        <div class="brand-icon">☕</div>
+        <div class="brand-icon" style="padding: 0; overflow: hidden; background: #000; box-shadow: 0 2px 8px rgba(255, 122, 0, 0.25);">
+          <img src="app_logo.png" alt="Snap Serve" style="width: 100%; height: 100%; object-fit: cover; border-radius: inherit;" onerror="this.outerHTML='☕'" />
+        </div>
         <div>
-          <div class="brand-name" id="cafeBrandName">Aroma Artisan Cafe</div>
+          <div class="brand-name" id="cafeBrandName">Loading Cafe...</div>
           <div class="table-badge" id="tableBadge">Table #...</div>
         </div>
       </div>
-      <button id="themeToggleBtn" class="theme-toggle-btn" aria-label="Toggle Dark/Light Mode">🌙</button>
+      <div class="topbar-actions">
+        <button id="myOrdersBtn" class="my-orders-btn" aria-label="View My Orders">
+          <span>📋 Orders</span>
+          <span id="myOrdersBadge" class="my-orders-badge hidden">0</span>
+        </button>
+        <button id="themeToggleBtn" class="theme-toggle-btn" aria-label="Toggle Dark/Light Mode">🌙</button>
+      </div>
     </div>
   </header>
 
   <!-- Main Content Area -->
   <main class="container">
+    <!-- Session Alert / Read-Only Mode Banner -->
+    <div id="sessionBanner" class="session-banner hidden" role="status">
+      <div class="session-banner-icon">🔒</div>
+      <div class="session-banner-text">
+        <strong>Session Expired / Table Closed (Read-Only Mode)</strong>
+        <span>This dining session has ended. You can view your bill & order history, but new orders cannot be placed. Please scan the QR at your table to start a new order.</span>
+      </div>
+    </div>
+
     <!-- Search Section -->
     <section class="search-section">
       <div class="search-input-wrapper">
@@ -60,7 +78,7 @@
   <button id="cartFab" class="cart-fab hidden" aria-label="View Cart">
     <span>🛒 View Order</span>
     <span class="cart-fab-badge" id="cartFabCount">0</span>
-    <span>· ₹<span id="cartFabTotal">0</span></span>
+    <span>• ₹<span id="cartFabTotal">0</span></span>
   </button>
 
   <!-- Cart Modal / Slide-up Drawer -->
@@ -77,6 +95,20 @@
     <!-- Items in cart -->
     <div id="cartItemsList" class="cart-items-list">
       <!-- Injected by app.js -->
+    </div>
+
+    <!-- Special Instructions / Cooking Notes -->
+    <div class="cart-notes-section" style="padding: 10px 16px 6px;">
+      <label for="orderNotesInput" style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 4px; color: var(--color-text-secondary);">
+        📝 Cooking Instructions / Notes for Chef
+      </label>
+      <input
+        type="text"
+        id="orderNotesInput"
+        placeholder="e.g., Less spicy, no onions, extra hot..."
+        maxlength="150"
+        style="width: 100%; padding: 8px 12px; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-subtle, #f9f9f9); color: var(--color-text-main); box-sizing: border-box;"
+      />
     </div>
 
     <!-- Footer with billing and Place Order button -->
@@ -97,6 +129,38 @@
         <span>Send to Kitchen</span>
         <span>🚀</span>
       </button>
+    </div>
+  </div>
+
+  <!-- My Orders Modal / Drawer -->
+  <div id="myOrdersBackdrop" class="cart-backdrop hidden"></div>
+  <div id="myOrdersDrawer" class="cart-drawer hidden">
+    <div class="cart-drawer-header">
+      <div>
+        <h2 class="cart-drawer-title">My Orders & Bill</h2>
+        <p style="font-size: 0.82rem; color: var(--color-text-secondary);" id="myOrdersSubtitle">Orders placed in this session</p>
+      </div>
+      <button id="closeMyOrdersBtn" class="close-btn" aria-label="Close My Orders">✕</button>
+    </div>
+
+    <div id="myOrdersList" class="my-orders-list">
+      <!-- Orders dynamically injected by app.js -->
+    </div>
+  </div>
+
+  <!-- Printable Receipt / Order Summary Modal -->
+  <div id="receiptModalBackdrop" class="cart-backdrop hidden"></div>
+  <div id="receiptModal" class="receipt-modal hidden">
+    <div class="receipt-modal-content">
+      <div class="receipt-paper" id="printableReceipt">
+        <!-- Receipt content dynamically injected by app.js -->
+      </div>
+      <div class="receipt-actions no-print">
+        <button id="printReceiptBtn" class="receipt-print-btn">
+          <span>🖨️ Print Receipt</span>
+        </button>
+        <button id="closeReceiptBtn" class="receipt-close-btn">Close</button>
+      </div>
     </div>
   </div>
 

@@ -4,7 +4,10 @@ import 'package:provider/provider.dart';
 import '../../models/order_model.dart';
 import '../../services/auth_service.dart';
 import '../../services/earnings_service.dart';
+import '../../services/kot_print_service.dart';
 import '../../services/order_service.dart';
+import '../../services/sound_service.dart';
+import '../kitchen/kitchen_display_screen.dart';
 
 class LiveOrdersScreen extends StatefulWidget {
   const LiveOrdersScreen({super.key});
@@ -15,7 +18,9 @@ class LiveOrdersScreen extends StatefulWidget {
 
 class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final List<String> _tabs = ['All Active', 'Pending', 'Preparing', 'Served', 'Paid History'];
+  final List<String> _tabs = ['All Active', 'Pending', 'Preparing', 'Ready', 'Served', 'Paid History'];
+
+  String? _lastCafeId;
 
   @override
   void initState() {
@@ -24,6 +29,16 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadOrders();
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final auth = context.watch<AuthService>();
+    if (auth.currentCafeId != _lastCafeId) {
+      _lastCafeId = auth.currentCafeId;
+      _loadOrders();
+    }
   }
 
   void _loadOrders() {
@@ -41,14 +56,19 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
 
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
+      case 'placed':
       case 'pending':
         return Colors.amber.shade800;
       case 'preparing':
         return const Color(0xFFFF7A00);
+      case 'ready':
+        return Colors.blue.shade700;
       case 'served':
-        return Colors.blue.shade600;
+        return Colors.teal.shade700;
       case 'paid':
         return Colors.green.shade600;
+      case 'cancelled':
+        return Colors.red.shade700;
       default:
         return Colors.grey;
     }
@@ -87,8 +107,10 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
     IconData icon = Icons.check;
 
     final normStatus = order.status.toLowerCase();
+    final cafeName = auth.currentCafeName.isNotEmpty ? auth.currentCafeName : 'SnapServe Cafe';
 
     switch (normStatus) {
+      case 'placed':
       case 'pending':
         nextLabel = 'Start Preparing';
         nextStatus = 'preparing';
@@ -96,9 +118,15 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
         icon = Icons.soup_kitchen;
         break;
       case 'preparing':
+        nextLabel = 'Mark Ready';
+        nextStatus = 'ready';
+        btnColor = Colors.blue.shade700;
+        icon = Icons.check_circle_outline;
+        break;
+      case 'ready':
         nextLabel = 'Mark Served';
         nextStatus = 'served';
-        btnColor = Colors.blue.shade700;
+        btnColor = Colors.teal.shade700;
         icon = Icons.room_service;
         break;
       case 'served':
@@ -108,10 +136,27 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
         icon = Icons.payments_outlined;
         break;
       case 'paid':
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.print, size: 18),
+              tooltip: 'Print KOT / Receipt',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => KotPrintService.printKot(order, cafeName: cafeName),
+            ),
+            const Chip(
+              avatar: Icon(Icons.check_circle, size: 16, color: Colors.green),
+              label: Text('Paid & Closed', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12)),
+              backgroundColor: Color(0xFFE8F5E9),
+            ),
+          ],
+        );
+      case 'cancelled':
         return const Chip(
-          avatar: Icon(Icons.check_circle, size: 16, color: Colors.green),
-          label: Text('Paid & Closed', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12)),
-          backgroundColor: Color(0xFFE8F5E9),
+          avatar: Icon(Icons.cancel, size: 16, color: Colors.red),
+          label: Text('Cancelled', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 12)),
+          backgroundColor: Color(0xFFFFEBEE),
         );
     }
 
@@ -121,8 +166,20 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
       alignment: WrapAlignment.end,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
+        // 1-Click Print KOT Thermal Receipt Button
+        OutlinedButton.icon(
+          onPressed: () => KotPrintService.printKot(order, cafeName: cafeName),
+          icon: const Icon(Icons.print, size: 14, color: Color(0xFFFF7A00)),
+          label: const Text('Print KOT', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFFF7A00))),
+          style: OutlinedButton.styleFrom(
+            side: const BorderSide(color: Color(0xFFFF7A00)),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        ),
+
         // Quick Direct Paid button if customer pays before order is served
-        if (normStatus == 'pending' || normStatus == 'preparing')
+        if (normStatus == 'placed' || normStatus == 'pending' || normStatus == 'preparing' || normStatus == 'ready')
           OutlinedButton.icon(
             onPressed: () => _updateOrderStatusAndEarnings(order, 'paid', auth, orderService),
             icon: const Icon(Icons.payments_outlined, size: 14, color: Colors.green),
@@ -153,6 +210,114 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
     );
   }
 
+  
+  void _confirmCloseDayAndCollect(BuildContext context, AuthService auth, OrderService orderService) {
+    final eligibleOrders = orderService.orders.where((o) => o.status.toLowerCase() == 'served').toList();
+    final double totalAmount = eligibleOrders.fold(0.0, (sum, o) => sum + o.totalAmount);
+
+    if (eligibleOrders.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No eligible served orders to collect. Only completed/served orders can be settled.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.point_of_sale, color: Color(0xFFFF7A00)),
+            SizedBox(width: 8),
+            Text('Close Day & Collect?'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'You are about to mark all eligible completed orders as paid and record today\'s collected amount.',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF3E0),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFFCC80)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  Column(
+                    children: [
+                      const Text('Orders', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${eligibleOrders.length}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black87),
+                      ),
+                    ],
+                  ),
+                  Container(height: 30, width: 1, color: Colors.grey.shade400),
+                  Column(
+                    children: [
+                      const Text('Collected', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      const SizedBox(height: 4),
+                      Text(
+                        '₹${totalAmount.toStringAsFixed(0)}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFFFF7A00)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Note: Pending and Preparing orders will remain active in the kitchen.',
+              style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF7A00),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final res = await orderService.closeDayAndCollect(auth.currentCafeId, isDemo: auth.isDemoMode);
+              if (context.mounted) {
+                context.read<EarningsService>().fetchEarnings(auth.currentCafeId, isDemo: auth.isDemoMode);
+                final collected = res['collected_amount'] ?? totalAmount;
+                final count = res['orders_count'] ?? eligibleOrders.length;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    backgroundColor: Colors.green.shade800,
+                    content: Text('₹${collected is num ? collected.toStringAsFixed(0) : collected} collected successfully ($count orders settled).'),
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
+              }
+            },
+            child: const Text('Confirm Collection'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthService>();
@@ -160,24 +325,95 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
 
     return Scaffold(
       appBar: AppBar(
-        title: Row(
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 12.0, top: 8.0, bottom: 8.0, right: 4.0),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black,
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFFF7A00).withValues(alpha: 0.25),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Image.asset(
+              'assets/images/app_logo.png',
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => const Icon(Icons.restaurant, color: Color(0xFFFF7A00)),
+            ),
+          ),
+        ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Live Kitchen Orders', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFF7A00).withOpacity(0.15),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                '${orderService.liveOrders.length} Active',
-                style: const TextStyle(color: Color(0xFFFF7A00), fontSize: 12, fontWeight: FontWeight.bold),
-              ),
+            Text(
+              auth.currentCafeName,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+            Row(
+              children: [
+                const Text('Live Kitchen Orders', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF7A00).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${orderService.liveOrders.length} Active',
+                    style: const TextStyle(color: Color(0xFFFF7A00), fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
         actions: [
+          Consumer<SoundService>(
+            builder: (ctx, sound, _) => IconButton(
+              icon: Icon(
+                sound.isSoundEnabled ? Icons.notifications_active : Icons.notifications_off,
+                color: sound.isSoundEnabled ? const Color(0xFFFF7A00) : Colors.grey,
+              ),
+              tooltip: sound.isSoundEnabled ? 'Sound alert active (tap to test bell)' : 'Sound muted (tap to enable)',
+              onPressed: () async {
+                if (sound.isSoundEnabled) {
+                  await sound.testSound();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('🔔 Tested order alert bell.'), duration: Duration(seconds: 1)),
+                    );
+                  }
+                } else {
+                  await sound.setSoundEnabled(true);
+                  await sound.testSound();
+                }
+              },
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.soup_kitchen, color: Color(0xFFFF7A00)),
+            tooltip: 'Open Kitchen Display System (KDS)',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const KitchenDisplayScreen()),
+              );
+            },
+          ),
+          TextButton.icon(
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFFF7A00),
+              visualDensity: VisualDensity.compact,
+            ),
+            icon: const Icon(Icons.point_of_sale, size: 16),
+            label: const Text('Close Day & Collect', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+            onPressed: () => _confirmCloseDayAndCollect(context, auth, orderService),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh Orders',
@@ -226,9 +462,10 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
                     controller: _tabController,
                     children: [
                       _buildOrdersList(orderService.liveOrders, auth, orderService),
-                      _buildOrdersList(orderService.orders.where((o) => o.status == 'pending').toList(), auth, orderService),
-                      _buildOrdersList(orderService.orders.where((o) => o.status == 'preparing').toList(), auth, orderService),
-                      _buildOrdersList(orderService.orders.where((o) => o.status == 'served').toList(), auth, orderService),
+                      _buildOrdersList(orderService.orders.where((o) => o.status.toLowerCase() == 'pending' || o.status.toLowerCase() == 'placed').toList(), auth, orderService),
+                      _buildOrdersList(orderService.orders.where((o) => o.status.toLowerCase() == 'preparing').toList(), auth, orderService),
+                      _buildOrdersList(orderService.orders.where((o) => o.status.toLowerCase() == 'ready').toList(), auth, orderService),
+                      _buildOrdersList(orderService.orders.where((o) => o.status.toLowerCase() == 'served').toList(), auth, orderService),
                       _buildOrdersList(orderService.completedOrders, auth, orderService),
                     ],
                   ),
@@ -269,7 +506,7 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
             side: BorderSide(
-              color: order.status == 'pending' ? const Color(0xFFFF7A00).withOpacity(0.5) : Colors.transparent,
+              color: order.status == 'pending' ? const Color(0xFFFF7A00).withValues(alpha: 0.5) : Colors.transparent,
               width: 1.5,
             ),
           ),
@@ -287,7 +524,7 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFFF7A00).withOpacity(0.12),
+                            color: const Color(0xFFFF7A00).withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
@@ -302,14 +539,14 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
                         const SizedBox(width: 8),
                         Text(
                           '#${order.shortId}',
-                          style: TextStyle(fontFamily: 'monospace', color: Colors.grey.shade600, fontSize: 13),
+                          style: TextStyle(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.w600),
                         ),
                       ],
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.15),
+                        color: statusColor.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
@@ -336,7 +573,7 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
                           width: 24,
                           height: 24,
                           decoration: BoxDecoration(
-                            color: Colors.grey.withOpacity(0.15),
+                            color: Colors.grey.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           alignment: Alignment.center,
@@ -360,6 +597,31 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
                     ),
                   );
                 }),
+
+                // Special Cooking Instructions Note
+                if (order.notes != null && order.notes!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.amber.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit_note, size: 18, color: Colors.amber.shade800),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Special Instructions: ${order.notes!.trim()}',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
 
                 const Divider(height: 20),
 

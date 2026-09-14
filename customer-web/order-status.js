@@ -7,12 +7,14 @@
   const orderId = urlParams.get("order") || sessionStorage.getItem("last_order_id");
   const cafeId = urlParams.get("cafe") || sessionStorage.getItem("cafe_id") || CONFIG.DEMO_MODE.cafe_id;
   const qrToken = urlParams.get("table") || sessionStorage.getItem("qr_token") || CONFIG.DEMO_MODE.qr_token;
+  const sessionToken = urlParams.get("session") || sessionStorage.getItem("session_token") || localStorage.getItem("session_token");
 
   let supabase = null;
   let realtimeChannel = null;
+  let currentCafeName = sessionStorage.getItem("cafe_name") || CONFIG.DEMO_MODE.cafe_name;
 
   // 1. BACK / ORDER MORE LINKAGE
-  const backUrl = `index.html?cafe=${encodeURIComponent(cafeId)}&table=${encodeURIComponent(qrToken)}`;
+  const backUrl = `index.html?cafe=${encodeURIComponent(cafeId)}&table=${encodeURIComponent(qrToken)}${sessionToken ? '&session=' + encodeURIComponent(sessionToken) : ''}`;
   const backLink = document.getElementById("backToMenuLink");
   const orderMoreBtn = document.getElementById("orderMoreBtn");
   if (backLink) backLink.href = backUrl;
@@ -42,43 +44,78 @@
     });
   }
 
+  // Print button
+  const printBtn = document.getElementById("printStatusReceiptBtn");
+  if (printBtn) {
+    printBtn.addEventListener("click", () => {
+      window.print();
+    });
+  }
+
   // 3. UI STATUS UPDATER
   const STATUS_CONFIGS = {
+    placed: {
+      stepIndex: 1,
+      progressWidth: "10%",
+      emoji: "⏳",
+      title: "Order Placed!",
+      message: "Your order ticket has arrived in the kitchen. Preparing shortly."
+    },
     pending: {
       stepIndex: 1,
-      progressWidth: "12%",
+      progressWidth: "10%",
       emoji: "⏳",
       title: "Order Received!",
       message: "Your order ticket has arrived in the kitchen. Preparing shortly."
     },
     preparing: {
       stepIndex: 2,
-      progressWidth: "40%",
-      emoji: "👨‍🍳",
+      progressWidth: "35%",
+      emoji: "👨‍🍳🔥",
       title: "Kitchen is Preparing!",
       message: "The barista and chef are crafting your food and beverages."
     },
-    served: {
+    ready: {
       stepIndex: 3,
-      progressWidth: "72%",
-      emoji: "🍽️",
+      progressWidth: "60%",
+      emoji: "🔔🥘",
+      title: "Order is Ready!",
+      message: "Your order is prepared and on its way to your table!"
+    },
+    served: {
+      stepIndex: 4,
+      progressWidth: "82%",
+      emoji: "🍽️✨",
+      title: "Order is Served!",
+      message: "Enjoy your fresh meal! Please ask our staff if you need anything."
+    },
+    completed: {
+      stepIndex: 4,
+      progressWidth: "82%",
+      emoji: "🍽️✨",
       title: "Order is Served!",
       message: "Enjoy your fresh meal! Please ask our staff if you need anything."
     },
     paid: {
-      stepIndex: 4,
+      stepIndex: 5,
       progressWidth: "100%",
-      emoji: "✨",
+      emoji: "✅",
       title: "Order Completed & Paid",
-      message: "Thank you for dining with us at Aroma Artisan Cafe! See you soon."
+      message: "Thank you for dining with us! See you soon."
+    },
+    cancelled: {
+      stepIndex: 1,
+      progressWidth: "0%",
+      emoji: "❌",
+      title: "Order Cancelled",
+      message: "This order was cancelled by the staff."
     }
   };
 
-  function updateStatusUI(statusName, totalAmount, tableNum, createdAt) {
+  function updateStatusUI(statusName, totalAmount, tableNum, createdAt, items) {
     const normStatus = (statusName || "pending").toLowerCase();
     const config = STATUS_CONFIGS[normStatus] || STATUS_CONFIGS.pending;
 
-    // Elements
     const emojiEl = document.getElementById("statusEmoji");
     const titleEl = document.getElementById("statusTitle");
     const msgEl = document.getElementById("statusMessage");
@@ -89,8 +126,7 @@
     if (msgEl) msgEl.textContent = config.message;
     if (progressEl) progressEl.style.width = config.progressWidth;
 
-    // Update Steps
-    const steps = ["pending", "preparing", "served", "paid"];
+    const steps = ["pending", "preparing", "ready", "served", "paid"];
     steps.forEach((s, idx) => {
       const stepEl = document.getElementById(`step-${s}`);
       if (!stepEl) return;
@@ -103,12 +139,17 @@
       }
     });
 
-    // Update Receipt
     const receiptOrderEl = document.getElementById("receiptOrderId");
     const receiptTableEl = document.getElementById("receiptTableNum");
     const orderTableBadge = document.getElementById("orderTableBadge");
     const receiptTotalEl = document.getElementById("receiptTotal");
     const receiptTimeEl = document.getElementById("receiptTime");
+    const cafeBrandEl = document.getElementById("statusCafeBrandName");
+    const headerCafeBrandEl = document.getElementById("receiptBrandNameHeader");
+
+    if (cafeBrandEl) cafeBrandEl.textContent = currentCafeName;
+    if (headerCafeBrandEl) headerCafeBrandEl.textContent = currentCafeName;
+    document.title = `Live Order Status - ${currentCafeName}`;
 
     if (receiptOrderEl && orderId) {
       receiptOrderEl.textContent = "#" + (orderId.length > 12 ? orderId.substring(0, 8).toUpperCase() : orderId);
@@ -126,54 +167,74 @@
       const date = new Date(createdAt);
       receiptTimeEl.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
+
+    if (items && Array.isArray(items) && items.length > 0) {
+      const itemsContainer = document.getElementById("statusReceiptItems");
+      if (itemsContainer) {
+        itemsContainer.innerHTML = `
+          <table class="receipt-items-table" style="width: 100%; border-collapse: collapse; margin: 8px 0;">
+            ${items.map(it => `
+              <tr>
+                <td style="padding: 4px 0;">${it.quantity} × ${it.name}</td>
+                <td style="text-align: right; padding: 4px 0; font-weight: 600;">₹${parseFloat(it.line_total || it.price * it.quantity).toFixed(0)}</td>
+              </tr>
+            `).join("")}
+          </table>
+        `;
+      }
+    }
   }
 
-  // 4. SUPABASE LIVE SUBSCRIPTION OR DEMO SIMULATION
+  // 4. SUPABASE LIVE SUBSCRIPTION
   async function initTracking() {
-    if (!orderId) {
-      updateStatusUI("pending", 0, CONFIG.DEMO_MODE.table_number, new Date());
-      return;
-    }
-
     if (isSupabaseConfigured() && window.supabase) {
       try {
         supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 
-        // Fetch initial status via secure get_order_status RPC
-        const { data, error } = await supabase.rpc("get_order_status", { p_order_id: orderId });
-        if (data && data.length > 0) {
-          const row = data[0];
-          updateStatusUI(row.status, row.total_amount, row.table_number, row.created_at);
+        // Fetch cafe name if not known
+        if (cafeId) {
+          const { data: cafeData } = await supabase.from("cafes").select("name").eq("id", cafeId).maybeSingle();
+          if (cafeData && cafeData.name) {
+            currentCafeName = cafeData.name;
+          }
         }
 
-        // Realtime Subscription
-        realtimeChannel = supabase
-          .channel(`order_tracking_${orderId}`)
-          .on(
-            "postgres_changes",
-            {
-              event: "UPDATE",
-              schema: "public",
-              table: "orders",
-              filter: `id=eq.${orderId}`
-            },
-            (payload) => {
-              console.log("Realtime order update received:", payload.new);
-              if (payload.new && payload.new.status) {
-                updateStatusUI(payload.new.status, payload.new.total_amount);
-              }
-            }
-          )
-          .subscribe();
-
-        // Polling fallback every 6 seconds
-        setInterval(async () => {
-          const { data: pollData } = await supabase.rpc("get_order_status", { p_order_id: orderId });
-          if (pollData && pollData.length > 0) {
-            const row = pollData[0];
-            updateStatusUI(row.status, row.total_amount, row.table_number, row.created_at);
+        // Fetch order details via get_order_status RPC
+        if (orderId) {
+          const { data, error } = await supabase.rpc("get_order_status", { p_order_id: orderId });
+          if (data && data.length > 0) {
+            const row = data[0];
+            updateStatusUI(row.status, row.total_amount, row.table_number, row.created_at, row.items);
           }
-        }, 6000);
+
+          // Realtime Subscription
+          realtimeChannel = supabase
+            .channel(`order_tracking_${orderId}`)
+            .on(
+              "postgres_changes",
+              {
+                event: "UPDATE",
+                schema: "public",
+                table: "orders",
+                filter: `id=eq.${orderId}`
+              },
+              (payload) => {
+                if (payload.new && payload.new.status) {
+                  updateStatusUI(payload.new.status, payload.new.total_amount);
+                }
+              }
+            )
+            .subscribe();
+
+          // 6-second polling fallback
+          setInterval(async () => {
+            const { data: pollData } = await supabase.rpc("get_order_status", { p_order_id: orderId });
+            if (pollData && pollData.length > 0) {
+              const row = pollData[0];
+              updateStatusUI(row.status, row.total_amount, row.table_number, row.created_at, row.items);
+            }
+          }, 6000);
+        }
 
         return;
       } catch (err) {
@@ -184,21 +245,20 @@
     // Demo Mode Progression Simulation
     let mockOrder = null;
     try {
-      const saved = sessionStorage.getItem(`demo_order_${orderId}`);
+      const saved = sessionStorage.getItem(`demo_order_${orderId}`) || localStorage.getItem(`demo_order_${orderId}`);
       if (saved) mockOrder = JSON.parse(saved);
     } catch (e) {}
 
-    const total = mockOrder ? mockOrder.total : 459;
+    const total = mockOrder ? mockOrder.total_amount || mockOrder.total : 459;
     const initialStatus = mockOrder ? mockOrder.status : "pending";
-    updateStatusUI(initialStatus, total, CONFIG.DEMO_MODE.table_number, new Date());
+    const items = mockOrder ? mockOrder.items : [];
+    updateStatusUI(initialStatus, total, CONFIG.DEMO_MODE.table_number, new Date(), items);
 
-    // In Demo Mode: Do NOT auto-advance! The order stays in its genuine status.
-    // Listen for storage events in case status is updated from another tab / owner console
     window.addEventListener("storage", (e) => {
       if (e.key === `demo_order_${orderId}` && e.newValue) {
         try {
           const updated = JSON.parse(e.newValue);
-          updateStatusUI(updated.status, updated.total, CONFIG.DEMO_MODE.table_number, updated.created_at || new Date());
+          updateStatusUI(updated.status, updated.total_amount || updated.total, CONFIG.DEMO_MODE.table_number, updated.created_at || new Date(), updated.items);
         } catch (err) {}
       }
     });

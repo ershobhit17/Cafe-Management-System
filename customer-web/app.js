@@ -1,5 +1,11 @@
 // ==============================================================================
 // Customer Ordering Web App - Main Logic (app.js)
+// Features:
+//   - Anti-Fraud Table Session Management (UUID, 2hr validity, turnover handling)
+//   - Dynamic Cafe Name from Database
+//   - Filter Active Menu Items (is_deleted = false)
+//   - "My Orders" Session Order History & Live Tracking
+//   - Order Summary & Clean Printable Receipt
 // ==============================================================================
 
 (function () {
@@ -8,14 +14,21 @@
   let activeCategory = "ALL";
   let searchQuery = "";
   let cart = {}; // { [item_id]: { item, quantity } }
+  let sessionOrders = [];
+  let isSessionActive = true;
   let supabase = null;
+  let realtimeOrdersChannel = null;
 
-  // 2. READ & PERSIST SESSION CONTEXT (URL PARAMS)
+  // Read Session Context (URL Params)
   const urlParams = new URLSearchParams(window.location.search);
-  let cafeId = urlParams.get("cafe") || sessionStorage.getItem("cafe_id");
-  let qrToken = urlParams.get("table") || sessionStorage.getItem("qr_token");
+  let cafeId = urlParams.get("cafe") || sessionStorage.getItem("cafe_id") || localStorage.getItem("cafe_id");
+  let qrToken = urlParams.get("table") || sessionStorage.getItem("qr_token") || localStorage.getItem("qr_token");
+  let sessionToken = urlParams.get("session") || sessionStorage.getItem("session_token") || localStorage.getItem("session_token");
+  let sessionId = sessionStorage.getItem("session_id") || localStorage.getItem("session_id");
+  let currentCafeName = "SnapServe Cafe";
+  let currentTableNumber = 3;
 
-  // Fallback to Demo Mode defaults if accessed without parameters
+  // Fallback to Demo Mode defaults if accessed directly
   if (!cafeId || !qrToken) {
     cafeId = CONFIG.DEMO_MODE.cafe_id;
     qrToken = CONFIG.DEMO_MODE.qr_token;
@@ -23,7 +36,7 @@
   sessionStorage.setItem("cafe_id", cafeId);
   sessionStorage.setItem("qr_token", qrToken);
 
-  // Restore existing cart from session if present
+  // Restore cart
   try {
     const savedCart = sessionStorage.getItem("cart_items");
     if (savedCart) cart = JSON.parse(savedCart);
@@ -31,7 +44,7 @@
     cart = {};
   }
 
-  // 3. THEME TOGGLE
+  // 2. THEME SETUP
   const themeToggleBtn = document.getElementById("themeToggleBtn");
   function applyTheme(theme) {
     const isDark = theme === "dark";
@@ -51,7 +64,7 @@
     });
   }
 
-  // 4. SUPABASE INITIALIZATION
+  // 3. SUPABASE INITIALIZATION
   if (isSupabaseConfigured() && window.supabase) {
     try {
       supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
@@ -61,7 +74,7 @@
     }
   }
 
-  // 5. TOAST NOTIFICATIONS
+  // 4. TOAST NOTIFICATIONS
   function showToast(message) {
     const toast = document.getElementById("toast");
     if (!toast) return;
@@ -70,13 +83,46 @@
     clearTimeout(toast._timeout);
     toast._timeout = setTimeout(() => {
       toast.classList.add("hidden");
-    }, 2400);
+    }, 2500);
   }
 
-  // 6. LOAD MENU & TABLE DETAILS
-  async function loadData() {
-    // Resolve Table Number & Cafe Name (Multi-Tenant Isolation)
-    if (supabase) {
+  // 5. TABLE SESSION INITIALIZATION & ANTI-FRAUD
+  async function initTableSession() {
+    if (supabase && qrToken) {
+      try {
+        // Call RPC: get_or_create_table_session
+        const { data, error } = await supabase.rpc("get_or_create_table_session", {
+          p_qr_token: qrToken,
+          p_session_token: sessionToken || null
+        });
+
+        if (!error && data && data.length > 0) {
+          const s = data[0];
+          sessionToken = s.session_token;
+          sessionId = s.session_id;
+          isSessionActive = s.is_active === true;
+          currentTableNumber = s.table_number;
+          if (s.cafe_name) currentCafeName = s.cafe_name;
+          if (s.cafe_id) cafeId = s.cafe_id;
+
+          // Persist session tokens
+          sessionStorage.setItem("session_token", sessionToken);
+          localStorage.setItem("session_token", sessionToken);
+          sessionStorage.setItem("session_id", sessionId);
+          localStorage.setItem("session_id", sessionId);
+          sessionStorage.setItem("cafe_id", cafeId);
+          sessionStorage.setItem("cafe_name", currentCafeName);
+          sessionStorage.setItem("table_number", currentTableNumber);
+
+          updateBrandAndTableUI(currentCafeName, currentTableNumber);
+          updateSessionStatusUI(isSessionActive);
+          return;
+        }
+      } catch (err) {
+        console.warn("Table session RPC error, falling back to table lookup:", err);
+      }
+
+      // Fallback: Direct table lookup if migration is still running
       try {
         const { data: tableData } = await supabase
           .from("tables")
@@ -85,53 +131,101 @@
           .maybeSingle();
 
         if (tableData) {
-          updateTableBadge(tableData.table_number);
-          if (tableData.cafe_id) {
-            cafeId = tableData.cafe_id;
-            sessionStorage.setItem("cafe_id", cafeId);
-          }
-          if (tableData.cafes && tableData.cafes.name) {
-            const brandEl = document.getElementById("cafeBrandName");
-            if (brandEl) brandEl.textContent = tableData.cafes.name;
-            document.title = `${tableData.cafes.name} - Menu & Ordering`;
-          }
-        } else {
-          updateTableBadge(CONFIG.DEMO_MODE.table_number);
+          currentTableNumber = tableData.table_number;
+          if (tableData.cafe_id) cafeId = tableData.cafe_id;
+          if (tableData.cafes && tableData.cafes.name) currentCafeName = tableData.cafes.name;
+          updateBrandAndTableUI(currentCafeName, currentTableNumber);
         }
+      } catch (err) {
+        console.warn("Direct table lookup failed:", err);
+      }
+    }
 
-        // Fetch Menu Items strictly for this cafe
-        const { data: menuData, error: menuErr } = await supabase
+    // Demo Mode session handling
+    if (!sessionToken) {
+      sessionToken = "demo-sess-" + Math.random().toString(36).substring(2, 10);
+      sessionId = "demo-sid-" + Math.random().toString(36).substring(2, 10);
+      sessionStorage.setItem("session_token", sessionToken);
+      localStorage.setItem("session_token", sessionToken);
+      sessionStorage.setItem("session_id", sessionId);
+    }
+    isSessionActive = true;
+    updateBrandAndTableUI(CONFIG.DEMO_MODE.cafe_name, CONFIG.DEMO_MODE.table_number);
+    updateSessionStatusUI(true);
+  }
+
+  function updateBrandAndTableUI(cafeName, tableNum) {
+    const brandEl = document.getElementById("cafeBrandName");
+    const badge = document.getElementById("tableBadge");
+    const drawerSub = document.getElementById("cartDrawerSubtitle");
+    const ordersSub = document.getElementById("myOrdersSubtitle");
+
+    if (brandEl) brandEl.textContent = cafeName;
+    document.title = `${cafeName} - Menu & Ordering`;
+    if (badge) badge.textContent = `Table #${tableNum}`;
+    if (drawerSub) drawerSub.textContent = `Ordering for Table #${tableNum}`;
+    if (ordersSub) ordersSub.textContent = `Table #${tableNum} • Current Session Orders`;
+  }
+
+  function updateSessionStatusUI(isActive) {
+    const banner = document.getElementById("sessionBanner");
+    const placeBtn = document.getElementById("placeOrderBtn");
+
+    if (!isActive) {
+      if (banner) banner.classList.remove("hidden");
+      if (placeBtn) {
+        placeBtn.disabled = true;
+        placeBtn.innerHTML = `<span>Session Closed</span> <span>🔒</span>`;
+      }
+    } else {
+      if (banner) banner.classList.add("hidden");
+      if (placeBtn && placeBtn.disabled && placeBtn.innerHTML.includes("Session Closed")) {
+        placeBtn.disabled = false;
+        placeBtn.innerHTML = `<span>Send to Kitchen</span> <span>🚀</span>`;
+      }
+    }
+  }
+
+  // 6. LOAD MENU (EXCLUDING DELETED ITEMS)
+  async function loadMenu() {
+    if (supabase) {
+      try {
+        // Query excluding is_deleted = true
+        let query = supabase
           .from("menu_items")
           .select("*")
-          .eq("cafe_id", cafeId)
-          .order("category");
+          .eq("cafe_id", cafeId);
 
-        if (!menuErr && menuData && menuData.length > 0) {
-          allMenuItems = menuData;
-        } else {
+        try {
+          const { data, error } = await query.eq("is_deleted", false).order("category");
+          if (!error && data) {
+            allMenuItems = data;
+          } else {
+            const { data: fallbackData } = await supabase
+              .from("menu_items")
+              .select("*")
+              .eq("cafe_id", cafeId)
+              .order("category");
+            allMenuItems = (fallbackData || []).filter(i => i.is_deleted !== true);
+          }
+        } catch (e) {
+          allMenuItems = CONFIG.DEMO_MODE.items;
+        }
+
+        if (!allMenuItems || allMenuItems.length === 0) {
           allMenuItems = CONFIG.DEMO_MODE.items;
         }
       } catch (err) {
-        console.warn("Error fetching Supabase data, using demo data:", err);
+        console.warn("Menu fetch error, using demo items:", err);
         allMenuItems = CONFIG.DEMO_MODE.items;
-        updateTableBadge(CONFIG.DEMO_MODE.table_number);
       }
     } else {
-      // Demo Mode
       allMenuItems = CONFIG.DEMO_MODE.items;
-      updateTableBadge(CONFIG.DEMO_MODE.table_number);
     }
 
     renderCategoryPills();
     renderMenu();
     updateCartUI();
-  }
-
-  function updateTableBadge(tableNum) {
-    const badge = document.getElementById("tableBadge");
-    const drawerSub = document.getElementById("cartDrawerSubtitle");
-    if (badge) badge.textContent = `Table #${tableNum}`;
-    if (drawerSub) drawerSub.textContent = `Ordering for Table #${tableNum}`;
   }
 
   // 7. RENDER CATEGORY PILLS
@@ -162,7 +256,6 @@
     if (!container) return;
     container.innerHTML = "";
 
-    // Filter items
     let filtered = allMenuItems.filter(item => {
       const matchCat = activeCategory === "ALL" || (item.category || "Other") === activeCategory;
       const matchSearch =
@@ -183,7 +276,6 @@
       return;
     }
 
-    // Group by category if "ALL" is selected
     if (activeCategory === "ALL" && searchQuery === "") {
       const categories = [...new Set(filtered.map(i => i.category || "Other"))];
       categories.forEach(cat => {
@@ -239,7 +331,6 @@
         <div class="item-price-row">${priceHtml}</div>
       </div>
       <div class="item-action" id="action-${item.id}">
-        <!-- Dynamic Add button or Counter injected below -->
       </div>
     `;
 
@@ -259,6 +350,19 @@
       return;
     }
 
+    if (!isSessionActive) {
+      const lockBtn = document.createElement("button");
+      lockBtn.className = "add-btn";
+      lockBtn.style.background = "var(--color-strike)";
+      lockBtn.style.cursor = "not-allowed";
+      lockBtn.innerHTML = `<span>Closed</span> <span>🔒</span>`;
+      lockBtn.addEventListener("click", () => {
+        showToast("Table session is closed. Please scan QR at table.");
+      });
+      actionContainer.appendChild(lockBtn);
+      return;
+    }
+
     const cartEntry = cart[item.id];
     if (!cartEntry || cartEntry.quantity === 0) {
       const addBtn = document.createElement("button");
@@ -270,11 +374,10 @@
       });
       actionContainer.appendChild(addBtn);
     } else {
-      // Show +/- control
       const ctrl = document.createElement("div");
       ctrl.className = "qty-control";
       ctrl.innerHTML = `
-        <button class="qty-btn" aria-label="Decrease">−</button>
+        <button class="qty-btn" aria-label="Decrease">－</button>
         <span class="qty-text">${cartEntry.quantity}</span>
         <button class="qty-btn" aria-label="Increase">+</button>
       `;
@@ -288,6 +391,11 @@
 
   // 10. CART MANIPULATION
   function modifyCartQuantity(item, delta) {
+    if (!isSessionActive) {
+      showToast("Session expired or table closed. Please scan QR again.");
+      return;
+    }
+
     if (!cart[item.id]) {
       if (delta > 0) cart[item.id] = { item, quantity: delta };
     } else {
@@ -300,7 +408,6 @@
     sessionStorage.setItem("cart_items", JSON.stringify(cart));
     updateCartUI();
 
-    // Update the button on the card if present
     const actionEl = document.getElementById(`action-${item.id}`);
     if (actionEl) renderItemActionButton(actionEl, item);
   }
@@ -325,7 +432,7 @@
     if (billTotal) billTotal.textContent = total.toFixed(0);
 
     if (cartFab) {
-      if (count > 0) {
+      if (count > 0 && isSessionActive) {
         cartFab.classList.remove("hidden");
       } else {
         cartFab.classList.add("hidden");
@@ -357,7 +464,7 @@
           <div class="cart-item-unit-price">₹${price} each</div>
         </div>
         <div class="qty-control">
-          <button class="qty-btn btn-dec">−</button>
+          <button class="qty-btn btn-dec">－</button>
           <span class="qty-text">${quantity}</span>
           <button class="qty-btn btn-inc">+</button>
         </div>
@@ -399,10 +506,15 @@
     });
   }
 
-  // 13. PLACE ORDER (CALLS SECURE SERVER-SIDE RPC)
+  // 13. PLACE ORDER (CALLS SECURE SERVER-SIDE RPC WITH SESSION TOKEN)
   const placeOrderBtn = document.getElementById("placeOrderBtn");
   if (placeOrderBtn) {
     placeOrderBtn.addEventListener("click", async () => {
+      if (!isSessionActive) {
+        showToast("Session expired or table closed. Please scan the QR again.");
+        return;
+      }
+
       const items = Object.values(cart).map(({ item, quantity }) => ({
         menu_item_id: item.id,
         quantity: quantity
@@ -416,54 +528,354 @@
       placeOrderBtn.disabled = true;
       placeOrderBtn.innerHTML = `<span>Placing order...</span> ⏳`;
 
+      const notesInput = document.getElementById("orderNotesInput");
+      const orderNotes = notesInput ? notesInput.value.trim() : "";
+
       try {
         let orderId = null;
 
         if (supabase) {
-          // Call tamper-proof Postgres RPC
-          // Server performs price lookup and computing, client only sends item IDs & quantities
           const { data, error } = await supabase.rpc("place_order", {
-            p_qr_token: qrToken,
-            p_items: items
+            p_session_token: sessionToken,
+            p_items: items,
+            p_notes: orderNotes || null
           });
 
-          if (error) throw error;
+          if (error) {
+            if (error.message && error.message.toLowerCase().includes("session expired")) {
+              isSessionActive = false;
+              updateSessionStatusUI(false);
+              throw new Error("Session expired or table closed. Please scan the QR again.");
+            }
+            throw error;
+          }
           orderId = data;
         } else {
-          // Demo fallback order simulation
           await new Promise(r => setTimeout(r, 600));
           orderId = "demo-ord-" + Math.random().toString(36).substring(2, 9);
-          // Store mock order state in both sessionStorage & localStorage
-          const orderPayload = JSON.stringify({
+          const orderPayload = {
             id: orderId,
+            short_id: orderId.substring(0, 8).toUpperCase(),
             status: "pending",
-            total: Object.values(cart).reduce((s, e) => s + (e.item.offer_price || e.item.price) * e.quantity, 0),
-            items: Object.values(cart).map(e => ({ name: e.item.name, quantity: e.quantity, price: e.item.offer_price || e.item.price })),
-            created_at: new Date().toISOString()
-          });
-          sessionStorage.setItem(`demo_order_${orderId}`, orderPayload);
-          localStorage.setItem(`demo_order_${orderId}`, orderPayload);
+            notes: orderNotes || null,
+            total_amount: Object.values(cart).reduce((s, e) => s + (e.item.offer_price || e.item.price) * e.quantity, 0),
+            created_at: new Date().toISOString(),
+            items: Object.values(cart).map(e => ({
+              id: "item-" + Math.random().toString(36).substring(2, 7),
+              name: e.item.name,
+              quantity: e.quantity,
+              price: e.item.offer_price || e.item.price,
+              line_total: (e.item.offer_price || e.item.price) * e.quantity
+            }))
+          };
+          sessionStorage.setItem(`demo_order_${orderId}`, JSON.stringify(orderPayload));
+          localStorage.setItem(`demo_order_${orderId}`, JSON.stringify(orderPayload));
         }
 
-        // Clear local cart
+        recordSessionOrderId(orderId);
+
         cart = {};
         sessionStorage.removeItem("cart_items");
+        if (notesInput) notesInput.value = "";
         updateCartUI();
         closeCartDrawer();
 
-        showToast("Order placed successfully! Redirecting...");
+        showToast("Order placed successfully! Added to My Orders.");
+
+        await loadSessionOrders();
         setTimeout(() => {
-          window.location.href = `order-status.html?order=${orderId}&cafe=${cafeId}&table=${qrToken}`;
-        }, 800);
+          openMyOrdersDrawer();
+        }, 400);
       } catch (err) {
-        console.error("Order error:", err);
-        showToast("Order failed: " + (err.message || "Please check connection"));
-        placeOrderBtn.disabled = false;
-        placeOrderBtn.innerHTML = `<span>Send to Kitchen</span> <span>🚀</span>`;
+        console.error("Order placement error:", err);
+        showToast(err.message || "Order could not be placed. Please try again.");
+      } finally {
+        if (isSessionActive) {
+          placeOrderBtn.disabled = false;
+          placeOrderBtn.innerHTML = `<span>Send to Kitchen</span> <span>🚀</span>`;
+        }
       }
     });
   }
 
-  // 14. INITIALIZE
-  loadData();
+  // 14. SESSION ORDER TRACKING & "MY ORDERS" FEATURE
+  function recordSessionOrderId(orderId) {
+    let ids = [];
+    try {
+      const stored = sessionStorage.getItem("my_session_order_ids");
+      if (stored) ids = JSON.parse(stored);
+    } catch (_) {}
+    if (!ids.includes(orderId)) ids.unshift(orderId);
+    sessionStorage.setItem("my_session_order_ids", JSON.stringify(ids));
+    sessionStorage.setItem("last_order_id", orderId);
+  }
+
+  function getLocalSessionOrderIds() {
+    try {
+      const stored = sessionStorage.getItem("my_session_order_ids");
+      return stored ? JSON.parse(stored) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async function loadSessionOrders() {
+    if (supabase && sessionToken) {
+      try {
+        const { data, error } = await supabase.rpc("get_session_orders", {
+          p_session_token: sessionToken
+        });
+
+        if (!error && data && Array.isArray(data)) {
+          sessionOrders = data;
+          updateMyOrdersBadge(sessionOrders.length);
+          renderMyOrdersList();
+          return;
+        }
+      } catch (err) {
+        console.warn("get_session_orders RPC failed, falling back to storage:", err);
+      }
+    }
+
+    const ids = getLocalSessionOrderIds();
+    const loaded = [];
+    for (const id of ids) {
+      const saved = sessionStorage.getItem(`demo_order_${id}`) || localStorage.getItem(`demo_order_${id}`);
+      if (saved) {
+        try {
+          loaded.push(JSON.parse(saved));
+        } catch (_) {}
+      }
+    }
+    sessionOrders = loaded;
+    updateMyOrdersBadge(sessionOrders.length);
+    renderMyOrdersList();
+  }
+
+  function updateMyOrdersBadge(count) {
+    const badge = document.getElementById("myOrdersBadge");
+    if (!badge) return;
+    if (count > 0) {
+      badge.textContent = count;
+      badge.classList.remove("hidden");
+    } else {
+      badge.classList.add("hidden");
+    }
+  }
+
+  function renderMyOrdersList() {
+    const container = document.getElementById("myOrdersList");
+    if (!container) return;
+
+    if (sessionOrders.length === 0) {
+      container.innerHTML = `
+        <div style="text-align: center; padding: 40px 20px; color: var(--color-text-secondary);">
+          <div style="font-size: 2.2rem; margin-bottom: 10px;">📋</div>
+          <p style="font-weight: 700; font-size: 1.05rem;">No orders yet</p>
+          <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 4px;">Items you order at Table #${currentTableNumber} will show here.</p>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = "";
+
+    sessionOrders.forEach(ord => {
+      const card = document.createElement("div");
+      card.className = "session-order-card";
+      const shortId = ord.short_id || (ord.id ? ord.id.substring(0, 8).toUpperCase() : "ORD");
+      const normStatus = (ord.status || "pending").toLowerCase();
+      const statusClass = `status-pill-${normStatus}`;
+
+      const placedDate = ord.created_at ? new Date(ord.created_at) : new Date();
+      const timeStr = placedDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+      const itemsHtml = (ord.items || []).map(it => `
+        <div class="session-order-item-row">
+          <span>${it.quantity} × ${it.name}</span>
+          <span>₹${(it.line_total || it.price * it.quantity).toFixed(0)}</span>
+        </div>
+      `).join("");
+
+      card.innerHTML = `
+        <div class="session-order-header">
+          <div>
+            <span class="session-order-id">#${shortId}</span>
+            <span class="session-order-time">• ${timeStr}</span>
+          </div>
+          <span class="order-status-pill ${statusClass}">${normStatus}</span>
+        </div>
+        <div class="session-order-items">
+          ${itemsHtml || '<div style="color: var(--color-text-muted);">Custom Kitchen Order</div>'}
+        </div>
+        <div class="session-order-footer">
+          <div>
+            <span style="font-size: 0.8rem; color: var(--color-text-secondary);">Total</span>
+            <div class="session-order-total">₹${parseFloat(ord.total_amount || 0).toFixed(0)}</div>
+          </div>
+          <button class="view-receipt-btn" data-order-id="${ord.id}">View Receipt</button>
+        </div>
+      `;
+
+      card.querySelector(".view-receipt-btn").addEventListener("click", () => {
+        openReceiptModal(ord);
+      });
+
+      container.appendChild(card);
+    });
+  }
+
+  // My Orders Modal Toggle
+  const myOrdersBtn = document.getElementById("myOrdersBtn");
+  const myOrdersDrawer = document.getElementById("myOrdersDrawer");
+  const myOrdersBackdrop = document.getElementById("myOrdersBackdrop");
+  const closeMyOrdersBtn = document.getElementById("closeMyOrdersBtn");
+
+  function openMyOrdersDrawer() {
+    loadSessionOrders();
+    if (myOrdersDrawer) myOrdersDrawer.classList.remove("hidden");
+    if (myOrdersBackdrop) myOrdersBackdrop.classList.remove("hidden");
+  }
+
+  function closeMyOrdersDrawer() {
+    if (myOrdersDrawer) myOrdersDrawer.classList.add("hidden");
+    if (myOrdersBackdrop) myOrdersBackdrop.classList.add("hidden");
+  }
+
+  if (myOrdersBtn) myOrdersBtn.addEventListener("click", openMyOrdersDrawer);
+  if (closeMyOrdersBtn) closeMyOrdersBtn.addEventListener("click", closeMyOrdersDrawer);
+  if (myOrdersBackdrop) myOrdersBackdrop.addEventListener("click", closeMyOrdersDrawer);
+
+  // 15. CUSTOMER BILL / EXPENSE SUMMARY RECEIPT & PRINT
+  const receiptModal = document.getElementById("receiptModal");
+  const receiptModalBackdrop = document.getElementById("receiptModalBackdrop");
+  const closeReceiptBtn = document.getElementById("closeReceiptBtn");
+  const printReceiptBtn = document.getElementById("printReceiptBtn");
+
+  function openReceiptModal(order) {
+    const printable = document.getElementById("printableReceipt");
+    if (!printable) return;
+
+    const shortId = order.short_id || (order.id ? order.id.substring(0, 8).toUpperCase() : "ORD");
+    const date = order.created_at ? new Date(order.created_at) : new Date();
+    const formattedDate = date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+    const formattedTime = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const normStatus = (order.status || "pending").toLowerCase();
+    const total = parseFloat(order.total_amount || 0).toFixed(0);
+
+    const rowsHtml = (order.items || []).map(it => `
+      <tr>
+        <td style="padding: 6px 0;">${it.name}</td>
+        <td style="text-align: center; padding: 6px 0;">${it.quantity}</td>
+        <td class="text-right" style="padding: 6px 0;">₹${parseFloat(it.price).toFixed(0)}</td>
+        <td class="text-right" style="padding: 6px 0; font-weight: 700;">₹${parseFloat(it.line_total || it.price * it.quantity).toFixed(0)}</td>
+      </tr>
+    `).join("");
+
+    printable.innerHTML = `
+      <div class="receipt-header">
+        <div class="receipt-cafe-name">${currentCafeName}</div>
+        <div class="receipt-subtitle">Order Summary & Customer Receipt</div>
+        <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 4px;">Table #${currentTableNumber} • Order #${shortId}</div>
+      </div>
+
+      <div class="receipt-meta">
+        <span>Date: ${formattedDate}</span>
+        <span>Time: ${formattedTime}</span>
+      </div>
+
+      <div class="receipt-divider"></div>
+
+      <table class="receipt-items-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th style="text-align: center;">Qty</th>
+            <th class="text-right">Price</th>
+            <th class="text-right">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml || '<tr><td colspan="4" style="text-align: center; padding: 8px;">Order Details</td></tr>'}
+        </tbody>
+      </table>
+
+      <div class="receipt-divider"></div>
+
+      <div class="receipt-total-row">
+        <span>Total Amount</span>
+        <span>₹${total}</span>
+      </div>
+
+      <div class="receipt-status-badge">
+        <span class="order-status-pill status-pill-${normStatus}">${normStatus}</span>
+      </div>
+
+      <div class="receipt-footer-thanks">
+        <p style="font-weight: 700;">Thank you for dining with us!</p>
+        <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 2px;">This document serves as an informal dining summary / customer receipt.</p>
+      </div>
+    `;
+
+    if (receiptModal) receiptModal.classList.remove("hidden");
+    if (receiptModalBackdrop) receiptModalBackdrop.classList.remove("hidden");
+  }
+
+  function closeReceiptModal() {
+    if (receiptModal) receiptModal.classList.add("hidden");
+    if (receiptModalBackdrop) receiptModalBackdrop.classList.add("hidden");
+  }
+
+  if (closeReceiptBtn) closeReceiptBtn.addEventListener("click", closeReceiptModal);
+  if (receiptModalBackdrop) receiptModalBackdrop.addEventListener("click", closeReceiptModal);
+
+  if (printReceiptBtn) {
+    printReceiptBtn.addEventListener("click", () => {
+      window.print();
+    });
+  }
+
+  // 16. REALTIME SUBSCRIPTION FOR ORDER UPDATES
+  function setupRealtimeOrders() {
+    if (!supabase || !sessionId) return;
+
+    try {
+      realtimeOrdersChannel = supabase
+        .channel(`cust_orders_${sessionId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "orders",
+            filter: `session_id=eq.${sessionId}`
+          },
+          (payload) => {
+            console.log("Realtime order status changed:", payload.new);
+            loadSessionOrders();
+            showToast(`Order status updated: ${(payload.new.status || "").toUpperCase()}`);
+          }
+        )
+        .subscribe();
+    } catch (e) {
+      console.warn("Realtime order subscription failed:", e);
+    }
+
+    // 8-second polling fallback
+    setInterval(() => {
+      if (sessionOrders.length > 0) {
+        loadSessionOrders();
+      }
+    }, 8000);
+  }
+
+  // 17. INITIALIZE APP
+  async function init() {
+    await initTableSession();
+    await loadMenu();
+    await loadSessionOrders();
+    setupRealtimeOrders();
+  }
+
+  init();
 })();

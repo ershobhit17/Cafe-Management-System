@@ -10,6 +10,8 @@ import '../../config/supabase_config.dart';
 import '../../models/table_model.dart';
 import '../../services/auth_service.dart';
 import '../../services/cafe_service.dart';
+import '../../services/subscription_service.dart';
+import '../subscription/subscription_plans_screen.dart';
 
 class TablesQrScreen extends StatefulWidget {
   const TablesQrScreen({super.key});
@@ -100,7 +102,7 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
                 crossAxisAlignment: pw.CrossAxisAlignment.center,
                 children: [
                   pw.Text(
-                    cafeName.isNotEmpty ? cafeName : 'Aroma Artisan Cafe',
+                    cafeName.isNotEmpty ? cafeName : 'SnapServe Cafe',
                     style: pw.TextStyle(
                       fontSize: 20,
                       fontWeight: pw.FontWeight.bold,
@@ -206,7 +208,7 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
                   crossAxisAlignment: pw.CrossAxisAlignment.center,
                   children: [
                     pw.Text(
-                      cafeName.isNotEmpty ? cafeName : 'Aroma Artisan Cafe',
+                      cafeName.isNotEmpty ? cafeName : 'SnapServe Cafe',
                       style: pw.TextStyle(
                         fontSize: 20,
                         fontWeight: pw.FontWeight.bold,
@@ -290,7 +292,60 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
     );
   }
 
+  void _showUpgradePlanDialog(BuildContext context, String resourceType, int currentLimit) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.upgrade, color: Color(0xFFFF7A00)),
+            SizedBox(width: 8),
+            Text('Plan Limit Reached'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'You have reached the maximum limit of $currentLimit ${resourceType}s allowed on your current plan.',
+              style: const TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Upgrade to Growth (20 Tables) or Enterprise (Unlimited) to add more dining tables and scale your cafe.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Later')),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF7A00),
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.flash_on, size: 16),
+            label: const Text('Upgrade Plan'),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SubscriptionPlansScreen()),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showAddTableDialog(BuildContext context, CafeService cafeService, AuthService auth) {
+    final subService = context.read<SubscriptionService>();
+    if (subService.overview != null && subService.overview!.isTablesLimitReached) {
+      _showUpgradePlanDialog(context, 'table', subService.overview!.maxTables);
+      return;
+    }
+
     final controller = TextEditingController(
       text: (cafeService.tables.isNotEmpty ? cafeService.tables.last.tableNumber + 1 : 1).toString(),
     );
@@ -312,11 +367,16 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF7A00), foregroundColor: Colors.white),
-            onPressed: () {
+            onPressed: () async {
               final num = int.tryParse(controller.text.trim());
               if (num != null && num > 0) {
-                cafeService.addTable(auth.currentCafeId, num, isDemo: auth.isDemoMode);
-                Navigator.pop(context);
+                final ok = await cafeService.addTable(auth.currentCafeId, num, isDemo: auth.isDemoMode);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  if (!ok && cafeService.errorMessage != null && cafeService.errorMessage!.contains('LIMIT_EXCEEDED')) {
+                    _showUpgradePlanDialog(context, 'table', subService.overview?.maxTables ?? 5);
+                  }
+                }
               }
             },
             child: const Text('Create Table & QR'),
@@ -339,7 +399,7 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                '☕ ${cafeName.isNotEmpty ? cafeName : "Aroma Artisan Cafe"}',
+                '☕ ${cafeName.isNotEmpty ? cafeName : "SnapServe Cafe"}',
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
               ),
               const SizedBox(height: 6),
@@ -436,89 +496,7 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
     );
   }
 
-  void _showBaseUrlEditor(BuildContext context) {
-    final c = TextEditingController(text: _baseUrl);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Customer Web App URL'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'QR codes and "Open in Browser" use this base URL. The table & cafe ID are automatically appended.',
-              style: TextStyle(fontSize: 13, color: Colors.grey),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: c,
-              decoration: const InputDecoration(
-                labelText: 'Base URL',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.link),
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text('Quick Presets:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                ActionChip(
-                  avatar: const Icon(Icons.cloud_done, size: 16, color: Colors.green),
-                  label: const Text('Render Live (Recommended)'),
-                  onPressed: () => c.text = SupabaseConfig.customerWebBaseUrl,
-                ),
-                ActionChip(
-                  avatar: const Icon(Icons.laptop, size: 16, color: Colors.blueGrey),
-                  label: const Text('Local Live Server (:5500)'),
-                  onPressed: () => c.text = 'http://127.0.0.1:5500/customer-web',
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue.shade200),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline, size: 18, color: Colors.blue),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Render Live URL mobile phone scan karne ke liye best hai kyunki ye public internet par chalta hai.',
-                      style: TextStyle(fontSize: 11, color: Colors.blue.shade900),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF7A00), foregroundColor: Colors.white),
-            onPressed: () async {
-              final newUrl = c.text.trim();
-              if (newUrl.isNotEmpty) {
-                setState(() => _baseUrl = newUrl);
-                await _storage.write(key: _keyCustomBaseUrl, value: newUrl);
-              }
-              if (ctx.mounted) Navigator.pop(ctx);
-            },
-            child: const Text('Save URL'),
-          ),
-        ],
-      ),
-    );
-  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -528,7 +506,16 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Tables & QR Codes', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              cafeName,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+            const Text('Tables & QR Codes', style: TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.print),
@@ -553,28 +540,7 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
       ),
       body: Column(
         children: [
-          // Base URL Customizer banner (for local testing vs deployed Vercel URL)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: Colors.grey.withValues(alpha: 0.08),
-            child: Row(
-              children: [
-                const Icon(Icons.link, size: 18, color: Color(0xFFFF7A00)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'QR Target: $_baseUrl',
-                    style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => _showBaseUrlEditor(context),
-                  child: const Text('Edit Base URL', style: TextStyle(fontSize: 12)),
-                ),
-              ],
-            ),
-          ),
+
 
           // Tables Grid
           Expanded(
