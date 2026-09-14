@@ -19,22 +19,38 @@
   let supabase = null;
   let realtimeOrdersChannel = null;
 
-  // Read Session Context (URL Params)
+  // 1. READ & ISOLATE SESSION CONTEXT (URL PARAMS)
   const urlParams = new URLSearchParams(window.location.search);
-  let cafeId = urlParams.get("cafe") || sessionStorage.getItem("cafe_id") || localStorage.getItem("cafe_id");
-  let qrToken = urlParams.get("table") || sessionStorage.getItem("qr_token") || localStorage.getItem("qr_token");
-  let sessionToken = urlParams.get("session") || sessionStorage.getItem("session_token") || localStorage.getItem("session_token");
-  let sessionId = sessionStorage.getItem("session_id") || localStorage.getItem("session_id");
-  let currentCafeName = "SnapServe Cafe";
-  let currentTableNumber = 3;
+  const paramCafe = urlParams.get("cafe");
+  const paramTable = urlParams.get("table");
+  const paramSession = urlParams.get("session");
 
-  // Fallback to Demo Mode defaults if accessed directly
-  if (!cafeId || !qrToken) {
-    cafeId = CONFIG.DEMO_MODE.cafe_id;
-    qrToken = CONFIG.DEMO_MODE.qr_token;
+  const storedQr = sessionStorage.getItem("qr_token") || localStorage.getItem("qr_token");
+  const storedCafe = sessionStorage.getItem("cafe_id") || localStorage.getItem("cafe_id");
+
+  // If a URL parameter specifies a table or cafe that is different from stored session,
+  // wipe stale tokens and cart from the previous cafe/table to prevent clashes
+  if ((paramTable && storedQr && paramTable !== storedQr) || (paramCafe && storedCafe && paramCafe !== storedCafe)) {
+    sessionStorage.clear();
+    localStorage.removeItem("session_token");
+    localStorage.removeItem("session_id");
+    localStorage.removeItem("cart_items");
+    localStorage.removeItem("cafe_id");
+    localStorage.removeItem("cafe_name");
+    localStorage.removeItem("qr_token");
+    localStorage.removeItem("table_number");
+    cart = {};
   }
-  sessionStorage.setItem("cafe_id", cafeId);
-  sessionStorage.setItem("qr_token", qrToken);
+
+  let cafeId = paramCafe || sessionStorage.getItem("cafe_id");
+  let qrToken = paramTable || sessionStorage.getItem("qr_token");
+  let sessionToken = paramSession || sessionStorage.getItem("session_token") || localStorage.getItem("session_token");
+  let sessionId = sessionStorage.getItem("session_id") || localStorage.getItem("session_id");
+  let currentCafeName = sessionStorage.getItem("cafe_name") || "SnapServe Cafe";
+  let currentTableNumber = sessionStorage.getItem("table_number") || 1;
+
+  if (cafeId) sessionStorage.setItem("cafe_id", cafeId);
+  if (qrToken) sessionStorage.setItem("qr_token", qrToken);
 
   // Restore cart
   try {
@@ -113,16 +129,19 @@
           sessionStorage.setItem("cafe_id", cafeId);
           sessionStorage.setItem("cafe_name", currentCafeName);
           sessionStorage.setItem("table_number", currentTableNumber);
+          sessionStorage.setItem("qr_token", qrToken);
 
           updateBrandAndTableUI(currentCafeName, currentTableNumber);
           updateSessionStatusUI(isSessionActive);
           return;
+        } else if (error) {
+          console.warn("Table session RPC error:", error);
         }
       } catch (err) {
-        console.warn("Table session RPC error, falling back to table lookup:", err);
+        console.warn("Table session RPC exception:", err);
       }
 
-      // Fallback: Direct table lookup if migration is still running
+      // Fallback: Direct table & cafe lookup by qrToken
       try {
         const { data: tableData } = await supabase
           .from("tables")
@@ -134,24 +153,53 @@
           currentTableNumber = tableData.table_number;
           if (tableData.cafe_id) cafeId = tableData.cafe_id;
           if (tableData.cafes && tableData.cafes.name) currentCafeName = tableData.cafes.name;
+
+          sessionStorage.setItem("cafe_id", cafeId);
+          sessionStorage.setItem("cafe_name", currentCafeName);
+          sessionStorage.setItem("table_number", currentTableNumber);
+          sessionStorage.setItem("qr_token", qrToken);
+
           updateBrandAndTableUI(currentCafeName, currentTableNumber);
+          updateSessionStatusUI(true);
+          return;
         }
       } catch (err) {
         console.warn("Direct table lookup failed:", err);
       }
     }
 
-    // Demo Mode session handling
-    if (!sessionToken) {
-      sessionToken = "demo-sess-" + Math.random().toString(36).substring(2, 10);
-      sessionId = "demo-sid-" + Math.random().toString(36).substring(2, 10);
-      sessionStorage.setItem("session_token", sessionToken);
-      localStorage.setItem("session_token", sessionToken);
-      sessionStorage.setItem("session_id", sessionId);
+    // Direct cafe lookup if cafeId is known
+    if (supabase && cafeId) {
+      try {
+        const { data: cafeData } = await supabase
+          .from("cafes")
+          .select("name")
+          .eq("id", cafeId)
+          .maybeSingle();
+
+        if (cafeData && cafeData.name) {
+          currentCafeName = cafeData.name;
+          sessionStorage.setItem("cafe_name", currentCafeName);
+          updateBrandAndTableUI(currentCafeName, currentTableNumber);
+          updateSessionStatusUI(true);
+          return;
+        }
+      } catch (_) {}
     }
-    isSessionActive = true;
-    updateBrandAndTableUI(CONFIG.DEMO_MODE.cafe_name, CONFIG.DEMO_MODE.table_number);
-    updateSessionStatusUI(true);
+
+    // Demo Mode session handling ONLY when Supabase is completely unavailable
+    if (!supabase) {
+      if (!sessionToken) {
+        sessionToken = "demo-sess-" + Math.random().toString(36).substring(2, 10);
+        sessionId = "demo-sid-" + Math.random().toString(36).substring(2, 10);
+        sessionStorage.setItem("session_token", sessionToken);
+        localStorage.setItem("session_token", sessionToken);
+        sessionStorage.setItem("session_id", sessionId);
+      }
+      isSessionActive = true;
+      updateBrandAndTableUI(CONFIG.DEMO_MODE.cafe_name, CONFIG.DEMO_MODE.table_number);
+      updateSessionStatusUI(true);
+    }
   }
 
   function updateBrandAndTableUI(cafeName, tableNum) {
@@ -186,41 +234,30 @@
     }
   }
 
-  // 6. LOAD MENU (EXCLUDING DELETED ITEMS)
+  // 6. LOAD MENU (EXCLUDING DELETED ITEMS FOR SPECIFIC CAFE ONLY)
   async function loadMenu() {
-    if (supabase) {
+    if (supabase && cafeId) {
       try {
-        // Query excluding is_deleted = true
-        let query = supabase
+        const { data, error } = await supabase
           .from("menu_items")
           .select("*")
-          .eq("cafe_id", cafeId);
+          .eq("cafe_id", cafeId)
+          .eq("is_deleted", false)
+          .order("category");
 
-        try {
-          const { data, error } = await query.eq("is_deleted", false).order("category");
-          if (!error && data) {
-            allMenuItems = data;
-          } else {
-            const { data: fallbackData } = await supabase
-              .from("menu_items")
-              .select("*")
-              .eq("cafe_id", cafeId)
-              .order("category");
-            allMenuItems = (fallbackData || []).filter(i => i.is_deleted !== true);
-          }
-        } catch (e) {
-          allMenuItems = CONFIG.DEMO_MODE.items;
-        }
-
-        if (!allMenuItems || allMenuItems.length === 0) {
-          allMenuItems = CONFIG.DEMO_MODE.items;
+        if (!error && data) {
+          allMenuItems = data;
+        } else {
+          allMenuItems = [];
         }
       } catch (err) {
-        console.warn("Menu fetch error, using demo items:", err);
-        allMenuItems = CONFIG.DEMO_MODE.items;
+        console.warn("Menu fetch error for cafe:", err);
+        allMenuItems = [];
       }
-    } else {
+    } else if (!supabase) {
       allMenuItems = CONFIG.DEMO_MODE.items;
+    } else {
+      allMenuItems = [];
     }
 
     renderCategoryPills();
@@ -266,11 +303,16 @@
     });
 
     if (filtered.length === 0) {
+      const isSearchActive = searchQuery.trim().length > 0;
       container.innerHTML = `
-        <div style="text-align: center; padding: 40px 20px; color: var(--color-text-secondary);">
-          <div style="font-size: 2.2rem; margin-bottom: 8px;">🍽️</div>
-          <p style="font-weight: 600;">No items found matching your search</p>
-          <p style="font-size: 0.85rem; color: var(--color-text-muted);">Try a different keyword or category</p>
+        <div style="text-align: center; padding: 48px 20px; color: var(--color-text-secondary);">
+          <div style="font-size: 2.5rem; margin-bottom: 12px;">🍽️</div>
+          <p style="font-weight: 700; font-size: 1.05rem; color: var(--color-text-primary); margin-bottom: 4px;">
+            ${isSearchActive ? "No items found matching your search" : `Welcome to ${currentCafeName}!`}
+          </p>
+          <p style="font-size: 0.85rem; color: var(--color-text-muted);">
+            ${isSearchActive ? "Try a different keyword or check other categories." : "Menu items will appear here once published by the cafe."}
+          </p>
         </div>
       `;
       return;

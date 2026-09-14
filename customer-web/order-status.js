@@ -5,24 +5,36 @@
 (function () {
   const urlParams = new URLSearchParams(window.location.search);
   const orderId = urlParams.get("order") || sessionStorage.getItem("last_order_id");
-  const cafeId = urlParams.get("cafe") || sessionStorage.getItem("cafe_id") || CONFIG.DEMO_MODE.cafe_id;
-  const qrToken = urlParams.get("table") || sessionStorage.getItem("qr_token") || CONFIG.DEMO_MODE.qr_token;
-  const sessionToken = urlParams.get("session") || sessionStorage.getItem("session_token") || localStorage.getItem("session_token");
+  let cafeId = urlParams.get("cafe") || sessionStorage.getItem("cafe_id");
+  let qrToken = urlParams.get("table") || sessionStorage.getItem("qr_token");
+  let sessionToken = urlParams.get("session") || sessionStorage.getItem("session_token") || localStorage.getItem("session_token");
 
   let supabase = null;
   let realtimeChannel = null;
-  let currentCafeName = sessionStorage.getItem("cafe_name") || CONFIG.DEMO_MODE.cafe_name;
+  let currentCafeName = sessionStorage.getItem("cafe_name") || "Snap Serve";
 
   // 1. BACK / ORDER MORE LINKAGE
-  const backUrl = `index.html?cafe=${encodeURIComponent(cafeId)}&table=${encodeURIComponent(qrToken)}${sessionToken ? '&session=' + encodeURIComponent(sessionToken) : ''}`;
-  const backLink = document.getElementById("backToMenuLink");
-  const orderMoreBtn = document.getElementById("orderMoreBtn");
-  if (backLink) backLink.href = backUrl;
-  if (orderMoreBtn) {
-    orderMoreBtn.addEventListener("click", () => {
-      window.location.href = backUrl;
-    });
+  function getBackUrl() {
+    const params = new URLSearchParams();
+    if (cafeId && cafeId !== CONFIG.DEMO_MODE.cafe_id) params.set("cafe", cafeId);
+    if (qrToken && qrToken !== CONFIG.DEMO_MODE.qr_token) params.set("table", qrToken);
+    if (sessionToken) params.set("session", sessionToken);
+    const qs = params.toString();
+    return qs ? `index.html?${qs}` : "index.html";
   }
+
+  function updateBackLinks() {
+    const backUrl = getBackUrl();
+    const backLink = document.getElementById("backToMenuLink");
+    const orderMoreBtn = document.getElementById("orderMoreBtn");
+    if (backLink) backLink.href = backUrl;
+    if (orderMoreBtn) {
+      orderMoreBtn.onclick = () => {
+        window.location.href = backUrl;
+      };
+    }
+  }
+  updateBackLinks();
 
   // 2. THEME SYNC
   const themeToggleBtn = document.getElementById("themeToggleBtn");
@@ -204,6 +216,15 @@
           const { data, error } = await supabase.rpc("get_order_status", { p_order_id: orderId });
           if (data && data.length > 0) {
             const row = data[0];
+            if (row.cafe_name) {
+              currentCafeName = row.cafe_name;
+              sessionStorage.setItem("cafe_name", currentCafeName);
+            }
+            if (row.cafe_id) {
+              cafeId = row.cafe_id;
+              sessionStorage.setItem("cafe_id", cafeId);
+              updateBackLinks();
+            }
             updateStatusUI(row.status, row.total_amount, row.table_number, row.created_at, row.items);
           }
 
@@ -218,8 +239,12 @@
                 table: "orders",
                 filter: `id=eq.${orderId}`
               },
-              (payload) => {
-                if (payload.new && payload.new.status) {
+              async (payload) => {
+                const { data: pollData } = await supabase.rpc("get_order_status", { p_order_id: orderId });
+                if (pollData && pollData.length > 0) {
+                  const row = pollData[0];
+                  updateStatusUI(row.status, row.total_amount, row.table_number, row.created_at, row.items);
+                } else if (payload.new && payload.new.status) {
                   updateStatusUI(payload.new.status, payload.new.total_amount);
                 }
               }
@@ -234,6 +259,13 @@
               updateStatusUI(row.status, row.total_amount, row.table_number, row.created_at, row.items);
             }
           }, 6000);
+        } else if (cafeId) {
+          const { data: cafeData } = await supabase.from("cafes").select("name").eq("id", cafeId).maybeSingle();
+          if (cafeData && cafeData.name) {
+            currentCafeName = cafeData.name;
+            sessionStorage.setItem("cafe_name", currentCafeName);
+            updateStatusUI("pending", 0, null, new Date(), []);
+          }
         }
 
         return;
