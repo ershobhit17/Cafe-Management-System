@@ -1,13 +1,19 @@
 // ==============================================================================
 // Customer Ordering Web App - Live Order Status Logic (order-status.js)
 // ==============================================================================
-
 (function () {
+  function isValidUuid(val) {
+    if (!val || typeof val !== "string") return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim());
+  }
+
   const urlParams = new URLSearchParams(window.location.search);
-  const orderId = urlParams.get("order") || sessionStorage.getItem("last_order_id");
-  let cafeId = urlParams.get("cafe") || sessionStorage.getItem("cafe_id");
-  let qrToken = urlParams.get("table") || sessionStorage.getItem("qr_token");
-  let sessionToken = urlParams.get("session") || sessionStorage.getItem("session_token") || localStorage.getItem("session_token");
+  const rawOrderId = urlParams.get("order") || sessionStorage.getItem("last_order_id");
+  const orderId = rawOrderId;
+  const isOrderUuid = isValidUuid(orderId);
+  let cafeId = isValidUuid(urlParams.get("cafe")) ? urlParams.get("cafe") : (isValidUuid(sessionStorage.getItem("cafe_id")) ? sessionStorage.getItem("cafe_id") : null);
+  let qrToken = isValidUuid(urlParams.get("table")) ? urlParams.get("table") : (isValidUuid(sessionStorage.getItem("qr_token")) ? sessionStorage.getItem("qr_token") : null);
+  let sessionToken = isValidUuid(urlParams.get("session")) ? urlParams.get("session") : (isValidUuid(sessionStorage.getItem("session_token")) ? sessionStorage.getItem("session_token") : null);
 
   let supabase = null;
   let realtimeChannel = null;
@@ -212,7 +218,7 @@
         }
 
         // Fetch order details via get_order_status RPC
-        if (orderId) {
+        if (orderId && isOrderUuid) {
           const { data, error } = await supabase.rpc("get_order_status", { p_order_id: orderId });
           if (data && data.length > 0) {
             const row = data[0];

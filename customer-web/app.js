@@ -19,6 +19,11 @@
   let supabase = null;
   let realtimeOrdersChannel = null;
 
+  function isValidUuid(val) {
+    if (!val || typeof val !== "string") return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim());
+  }
+
   // 1. READ & ISOLATE SESSION CONTEXT (URL PARAMS)
   const urlParams = new URLSearchParams(window.location.search);
   const paramCafe = urlParams.get("cafe");
@@ -27,10 +32,12 @@
 
   const storedQr = sessionStorage.getItem("qr_token") || localStorage.getItem("qr_token");
   const storedCafe = sessionStorage.getItem("cafe_id") || localStorage.getItem("cafe_id");
+  const rawSessionStored = sessionStorage.getItem("session_token") || localStorage.getItem("session_token");
+  const hasStaleDemoSession = rawSessionStored && !isValidUuid(rawSessionStored);
 
   // If a URL parameter specifies a table or cafe that is different from stored session,
-  // wipe stale tokens and cart from the previous cafe/table to prevent clashes
-  if ((paramTable && storedQr && paramTable !== storedQr) || (paramCafe && storedCafe && paramCafe !== storedCafe)) {
+  // or if stored session contains invalid demo strings (like "demo-sess-..."), wipe stale tokens and cart
+  if (hasStaleDemoSession || (paramTable && storedQr && paramTable !== storedQr) || (paramCafe && storedCafe && paramCafe !== storedCafe)) {
     sessionStorage.clear();
     localStorage.removeItem("session_token");
     localStorage.removeItem("session_id");
@@ -42,15 +49,16 @@
     cart = {};
   }
 
-  let cafeId = paramCafe || sessionStorage.getItem("cafe_id");
-  let qrToken = paramTable || sessionStorage.getItem("qr_token");
-  let sessionToken = paramSession || sessionStorage.getItem("session_token") || localStorage.getItem("session_token");
-  let sessionId = sessionStorage.getItem("session_id") || localStorage.getItem("session_id");
+  let cafeId = isValidUuid(paramCafe) ? paramCafe.trim() : (isValidUuid(sessionStorage.getItem("cafe_id")) ? sessionStorage.getItem("cafe_id") : null);
+  let qrToken = isValidUuid(paramTable) ? paramTable.trim() : (isValidUuid(sessionStorage.getItem("qr_token")) ? sessionStorage.getItem("qr_token") : null);
+  let sessionToken = isValidUuid(paramSession) ? paramSession.trim() : (isValidUuid(sessionStorage.getItem("session_token")) ? sessionStorage.getItem("session_token") : (isValidUuid(localStorage.getItem("session_token")) ? localStorage.getItem("session_token") : null));
+  let sessionId = isValidUuid(sessionStorage.getItem("session_id")) ? sessionStorage.getItem("session_id") : (isValidUuid(localStorage.getItem("session_id")) ? localStorage.getItem("session_id") : null);
   let currentCafeName = sessionStorage.getItem("cafe_name") || "SnapServe Cafe";
   let currentTableNumber = sessionStorage.getItem("table_number") || 1;
 
   if (cafeId) sessionStorage.setItem("cafe_id", cafeId);
   if (qrToken) sessionStorage.setItem("qr_token", qrToken);
+  if (sessionToken) sessionStorage.setItem("session_token", sessionToken);
 
   // Restore cart
   try {
@@ -106,11 +114,24 @@
   async function initTableSession() {
     if (supabase && qrToken) {
       try {
-        // Call RPC: get_or_create_table_session
-        const { data, error } = await supabase.rpc("get_or_create_table_session", {
+        const cleanSessionToken = isValidUuid(sessionToken) ? sessionToken : null;
+        let { data, error } = await supabase.rpc("get_or_create_table_session", {
           p_qr_token: qrToken,
-          p_session_token: sessionToken || null
+          p_session_token: cleanSessionToken
         });
+
+        // If error occurred and an old session token was passed, retry once with null to start fresh
+        if (error && cleanSessionToken) {
+          sessionStorage.removeItem("session_token");
+          localStorage.removeItem("session_token");
+          sessionToken = null;
+          const retryRes = await supabase.rpc("get_or_create_table_session", {
+            p_qr_token: qrToken,
+            p_session_token: null
+          });
+          data = retryRes.data;
+          error = retryRes.error;
+        }
 
         if (!error && data && data.length > 0) {
           const s = data[0];
@@ -146,7 +167,7 @@
         const { data: tableData } = await supabase
           .from("tables")
           .select("table_number, cafe_id, cafes(name)")
-          .eq("qr_token", qrToken)
+          .or(`qr_token.eq.${qrToken},id.eq.${qrToken}`)
           .maybeSingle();
 
         if (tableData) {
@@ -577,8 +598,17 @@
         let orderId = null;
 
         if (supabase) {
+          // Ensure we have an active valid UUID session token
+          if (!isValidUuid(sessionToken)) {
+            await initTableSession();
+          }
+
+          const cleanSession = isValidUuid(sessionToken) ? sessionToken : null;
+          const cleanQr = isValidUuid(qrToken) ? qrToken : null;
+
           const { data, error } = await supabase.rpc("place_order", {
-            p_session_token: sessionToken,
+            p_session_token: cleanSession,
+            p_qr_token: cleanQr,
             p_items: items,
             p_notes: orderNotes || null
           });
