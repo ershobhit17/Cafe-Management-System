@@ -165,18 +165,23 @@ class _KitchenDisplayScreenState extends State<KitchenDisplayScreen> {
               ),
             ),
             const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$cafeName • Kitchen Display',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-                Text(
-                  '$totalActiveKitchen Tickets Live',
-                  style: const TextStyle(fontSize: 11, color: Colors.white70),
-                ),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '$cafeName • Kitchen Display',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  Text(
+                    '$totalActiveKitchen Tickets Live',
+                    style: const TextStyle(fontSize: 11, color: Colors.white70),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -199,17 +204,21 @@ class _KitchenDisplayScreenState extends State<KitchenDisplayScreen> {
           preferredSize: const Size.fromHeight(48),
           child: Container(
             color: const Color(0xFF16161A),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            child: Row(
-              children: [
-                _buildFilterChip('ACTIVE', 'All Active ($totalActiveKitchen)'),
-                const SizedBox(width: 8),
-                _buildFilterChip('PLACED', 'New / Placed'),
-                const SizedBox(width: 8),
-                _buildFilterChip('PREPARING', 'Preparing'),
-                const SizedBox(width: 8),
-                _buildFilterChip('READY', 'Ready for Pickup'),
-              ],
+            alignment: Alignment.centerLeft,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Row(
+                children: [
+                  _buildFilterChip('ACTIVE', 'All Active ($totalActiveKitchen)'),
+                  const SizedBox(width: 8),
+                  _buildFilterChip('PLACED', 'New / Placed'),
+                  const SizedBox(width: 8),
+                  _buildFilterChip('PREPARING', 'Preparing'),
+                  const SizedBox(width: 8),
+                  _buildFilterChip('READY', 'Ready for Pickup'),
+                ],
+              ),
             ),
           ),
         ),

@@ -376,10 +376,13 @@ class _EarningsScreenState extends State<EarningsScreen> {
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              auth.currentCafeName,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              auth.currentCafeName.isNotEmpty ? auth.currentCafeName : 'SnapServe Cafe',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
             ),
             const Text('Earnings & Revenue', style: TextStyle(fontSize: 12, color: Colors.grey)),
           ],
@@ -1005,12 +1008,15 @@ class _EarningsScreenState extends State<EarningsScreen> {
               ],
             ),
             const SizedBox(height: 6),
-            Text(
-              '₹${amount.toStringAsFixed(0)}',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w900,
-                color: isActive ? color : Colors.black87,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                '₹${amount.toStringAsFixed(0)}',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                  color: isActive ? color : Colors.black87,
+                ),
               ),
             ),
             const SizedBox(height: 2),

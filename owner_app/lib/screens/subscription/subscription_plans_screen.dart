@@ -106,45 +106,53 @@ class _SubscriptionPlansScreenState extends State<SubscriptionPlansScreen> {
                         children: [
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        overview.isTrial ? Icons.hourglass_top : Icons.verified,
-                                        color: overview.isTrialExpired ? Colors.red : primaryColor,
-                                        size: 20,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        overview.isTrial
-                                            ? (overview.isTrialExpired ? 'Free Trial Expired' : '7-Day Free Trial')
-                                            : overview.tierInfo.name,
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 18,
-                                          color: overview.isTrialExpired ? Colors.red.shade800 : null,
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          overview.isTrial ? Icons.hourglass_top : Icons.verified,
+                                          color: overview.isTrialExpired ? Colors.red : primaryColor,
+                                          size: 20,
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    overview.isTrialExpired
-                                        ? 'Trial ended on ${DateFormat('dd MMM yyyy').format(overview.endDate)}. Upgrade required.'
-                                        : (overview.isTrial
-                                            ? 'Trial ends: ${DateFormat('dd MMM yyyy').format(overview.endDate)} (${overview.daysRemaining} days left)'
-                                            : 'Renewal: ${DateFormat('dd MMM yyyy').format(overview.endDate)} (${overview.daysRemaining} days left)'),
-                                    style: TextStyle(
-                                      color: overview.isTrialExpired ? Colors.red.shade700 : Colors.grey.shade600,
-                                      fontSize: 12,
-                                      fontWeight: overview.isTrialExpired ? FontWeight.bold : FontWeight.normal,
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Text(
+                                            overview.isTrial
+                                                ? (overview.isTrialExpired ? 'Free Trial Expired' : '7-Day Free Trial')
+                                                : overview.tierInfo.name,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 18,
+                                              color: overview.isTrialExpired ? Colors.red.shade800 : null,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      overview.isTrialExpired
+                                          ? 'Trial ended on ${DateFormat('dd MMM yyyy').format(overview.endDate)}. Upgrade required.'
+                                          : (overview.isTrial
+                                              ? 'Trial ends: ${DateFormat('dd MMM yyyy').format(overview.endDate)} (${overview.daysRemaining} days left)'
+                                              : 'Renewal: ${DateFormat('dd MMM yyyy').format(overview.endDate)} (${overview.daysRemaining} days left)'),
+                                      style: TextStyle(
+                                        color: overview.isTrialExpired ? Colors.red.shade700 : Colors.grey.shade600,
+                                        fontSize: 12,
+                                        fontWeight: overview.isTrialExpired ? FontWeight.bold : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
+                              const SizedBox(width: 8),
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                 decoration: BoxDecoration(
@@ -376,61 +384,70 @@ class _SubscriptionPlansScreenState extends State<SubscriptionPlansScreen> {
                           children: [
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Text(
-                                          tier.name,
-                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
-                                        ),
-                                        if (isPendingTier) ...[
-                                          const SizedBox(width: 8),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFFD97706),
-                                              borderRadius: BorderRadius.circular(10),
-                                            ),
-                                            child: const Text(
-                                              'APPROVAL PENDING',
-                                              style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
-                                            ),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Wrap(
+                                        crossAxisAlignment: WrapCrossAlignment.center,
+                                        spacing: 8,
+                                        runSpacing: 4,
+                                        children: [
+                                          Text(
+                                            tier.name,
+                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
                                           ),
-                                        ] else if (tier.isPopular) ...[
-                                          const SizedBox(width: 8),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: primaryColor,
-                                              borderRadius: BorderRadius.circular(10),
+                                          if (isPendingTier) ...[
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFD97706),
+                                                borderRadius: BorderRadius.circular(10),
+                                              ),
+                                              child: const Text(
+                                                'APPROVAL PENDING',
+                                                style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                                              ),
                                             ),
-                                            child: const Text(
-                                              'POPULAR',
-                                              style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                                          ] else if (tier.isPopular) ...[
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: primaryColor,
+                                                borderRadius: BorderRadius.circular(10),
+                                              ),
+                                              child: const Text(
+                                                'POPULAR',
+                                                style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                                              ),
                                             ),
-                                          ),
+                                          ],
                                         ],
-                                      ],
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      tier.description,
-                                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                                    ),
-                                  ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        tier.description,
+                                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                      ),
+                                    ],
+                                  ),
                                 ),
+                                const SizedBox(width: 8),
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.end,
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Text(
-                                      '₹${tier.price.toStringAsFixed(0)}',
-                                      style: TextStyle(
-                                        color: isCurrentTier ? Colors.green.shade800 : primaryColor,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 22,
+                                    FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Text(
+                                        '₹${tier.price.toStringAsFixed(0)}',
+                                        style: TextStyle(
+                                          color: isCurrentTier ? Colors.green.shade800 : primaryColor,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 22,
+                                        ),
                                       ),
                                     ),
                                     const Text('/month', style: TextStyle(fontSize: 10, color: Colors.grey)),
@@ -479,9 +496,12 @@ class _SubscriptionPlansScreenState extends State<SubscriptionPlansScreen> {
                                       ? OutlinedButton.icon(
                                           onPressed: () => _openPaymentDialog(tier),
                                           icon: const Icon(Icons.hourglass_top, size: 18, color: Color(0xFFD97706)),
-                                          label: Text(
-                                            'Awaiting Approval (UTR: ${overview.pendingUtr})',
-                                            style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFD97706)),
+                                          label: FittedBox(
+                                            fit: BoxFit.scaleDown,
+                                            child: Text(
+                                              'Awaiting Approval (UTR: ${overview.pendingUtr})',
+                                              style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFD97706)),
+                                            ),
                                           ),
                                           style: OutlinedButton.styleFrom(
                                             side: const BorderSide(color: Color(0xFFD97706), width: 1.5),
@@ -493,9 +513,12 @@ class _SubscriptionPlansScreenState extends State<SubscriptionPlansScreen> {
                                       : ElevatedButton.icon(
                                           onPressed: () => _openPaymentDialog(tier),
                                           icon: const Icon(Icons.flash_on, size: 18),
-                                          label: Text(
-                                            'Upgrade to ${tier.name} (₹${tier.price.toStringAsFixed(0)})',
-                                            style: const TextStyle(fontWeight: FontWeight.bold),
+                                          label: FittedBox(
+                                            fit: BoxFit.scaleDown,
+                                            child: Text(
+                                              'Upgrade to ${tier.name} (₹${tier.price.toStringAsFixed(0)})',
+                                              style: const TextStyle(fontWeight: FontWeight.bold),
+                                            ),
                                           ),
                                           style: ElevatedButton.styleFrom(
                                             backgroundColor: primaryColor,

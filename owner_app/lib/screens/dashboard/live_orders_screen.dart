@@ -322,15 +322,17 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
   Widget build(BuildContext context) {
     final auth = context.watch<AuthService>();
     final orderService = context.watch<OrderService>();
+    final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Scaffold(
       appBar: AppBar(
+        titleSpacing: 0,
         leading: Padding(
-          padding: const EdgeInsets.only(left: 12.0, top: 8.0, bottom: 8.0, right: 4.0),
+          padding: const EdgeInsets.only(left: 10.0, top: 9.0, bottom: 9.0, right: 6.0),
           child: Container(
             decoration: BoxDecoration(
               color: Colors.black,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(9),
               boxShadow: [
                 BoxShadow(
                   color: const Color(0xFFFF7A00).withValues(alpha: 0.25),
@@ -349,15 +351,19 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              auth.currentCafeName,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              auth.currentCafeName.isNotEmpty ? auth.currentCafeName : 'SnapServe Cafe',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Live Kitchen Orders', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                const SizedBox(width: 6),
+                const Text('Live Orders', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                const SizedBox(width: 5),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                   decoration: BoxDecoration(
@@ -376,9 +382,12 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
         actions: [
           Consumer<SoundService>(
             builder: (ctx, sound, _) => IconButton(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 2),
               icon: Icon(
                 sound.isSoundEnabled ? Icons.notifications_active : Icons.notifications_off,
                 color: sound.isSoundEnabled ? const Color(0xFFFF7A00) : Colors.grey,
+                size: 22,
               ),
               tooltip: sound.isSoundEnabled ? 'Sound alert active (tap to test bell)' : 'Sound muted (tap to enable)',
               onPressed: () async {
@@ -397,32 +406,80 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.soup_kitchen, color: Color(0xFFFF7A00)),
-            tooltip: 'Open Kitchen Display System (KDS)',
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            icon: const Icon(Icons.soup_kitchen, color: Color(0xFFFF7A00), size: 22),
+            tooltip: 'Kitchen Display System (KDS)',
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const KitchenDisplayScreen()),
               );
             },
           ),
-          TextButton.icon(
-            style: TextButton.styleFrom(
-              foregroundColor: const Color(0xFFFF7A00),
-              visualDensity: VisualDensity.compact,
+          if (!isMobile) ...[
+            TextButton.icon(
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFFFF7A00),
+                visualDensity: VisualDensity.compact,
+              ),
+              icon: const Icon(Icons.point_of_sale, size: 16),
+              label: const Text('Close Day & Collect', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+              onPressed: () => _confirmCloseDayAndCollect(context, auth, orderService),
             ),
-            icon: const Icon(Icons.point_of_sale, size: 16),
-            label: const Text('Close Day & Collect', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
-            onPressed: () => _confirmCloseDayAndCollect(context, auth, orderService),
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh Orders',
-            onPressed: _loadOrders,
-          ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Refresh Orders',
+              onPressed: _loadOrders,
+            ),
+          ] else ...[
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              icon: const Icon(Icons.refresh, size: 22),
+              tooltip: 'Refresh Orders',
+              onPressed: _loadOrders,
+            ),
+            PopupMenuButton<String>(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              icon: const Icon(Icons.more_vert, size: 22),
+              tooltip: 'More Actions',
+              onSelected: (action) {
+                if (action == 'close_day') {
+                  _confirmCloseDayAndCollect(context, auth, orderService);
+                } else if (action == 'refresh') {
+                  _loadOrders();
+                }
+              },
+              itemBuilder: (ctx) => [
+                const PopupMenuItem(
+                  value: 'close_day',
+                  child: Row(
+                    children: [
+                      Icon(Icons.point_of_sale, color: Color(0xFFFF7A00), size: 20),
+                      SizedBox(width: 10),
+                      Text('Close Day & Collect', style: TextStyle(fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'refresh',
+                  child: Row(
+                    children: [
+                      Icon(Icons.refresh, size: 20),
+                      SizedBox(width: 10),
+                      Text('Refresh Orders'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,
+          tabAlignment: TabAlignment.start,
           labelColor: const Color(0xFFFF7A00),
           indicatorColor: const Color(0xFFFF7A00),
           tabs: _tabs.map((tab) => Tab(text: tab)).toList(),
@@ -492,162 +549,165 @@ class _LiveOrdersScreenState extends State<LiveOrdersScreen> with SingleTickerPr
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: orders.length,
-      itemBuilder: (context, index) {
-        final order = orders[index];
-        final timeStr = DateFormat('hh:mm a').format(order.createdAt);
-        final statusColor = _getStatusColor(order.status);
+    return RefreshIndicator(
+      color: const Color(0xFFFF7A00),
+      onRefresh: () async => _loadOrders(),
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(12),
+        itemCount: orders.length,
+        itemBuilder: (context, index) {
+          final order = orders[index];
+          final timeStr = DateFormat('hh:mm a').format(order.createdAt);
+          final statusColor = _getStatusColor(order.status);
 
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: BorderSide(
-              color: order.status == 'pending' ? const Color(0xFFFF7A00).withValues(alpha: 0.5) : Colors.transparent,
-              width: 1.5,
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            elevation: 2,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(
+                color: order.status == 'pending' ? const Color(0xFFFF7A00).withValues(alpha: 0.5) : Colors.transparent,
+                width: 1.5,
+              ),
             ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Top Row: Table # and Status
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFF7A00).withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            'Table #${order.tableNumber}',
-                            style: const TextStyle(
-                              color: Color(0xFFFF7A00),
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Top Row: Table # and Status
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFF7A00).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              'Table #${order.tableNumber}',
+                              style: const TextStyle(
+                                color: Color(0xFFFF7A00),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '#${order.shortId}',
-                          style: TextStyle(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: statusColor.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(20),
+                          const SizedBox(width: 8),
+                          Text(
+                            '#${order.shortId}',
+                            style: TextStyle(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.w600),
+                          ),
+                        ],
                       ),
-                      child: Text(
-                        order.status.toUpperCase(),
-                        style: TextStyle(
-                          color: statusColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 11,
-                          letterSpacing: 0.5,
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: statusColor.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(20),
                         ),
+                        child: Text(
+                          order.status.toUpperCase(),
+                          style: TextStyle(
+                            color: statusColor,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Order Items
+                  ...order.items.map((item) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              '${item.quantity}x',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              item.menuItemName,
+                              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                            ),
+                          ),
+                          Text(
+                            '₹${item.subtotal.toStringAsFixed(0)}',
+                            style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+
+                  // Special Cooking Instructions Note
+                  if (order.notes != null && order.notes!.trim().isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.amber.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.edit_note, size: 18, color: Colors.amber.shade800),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Special Instructions: ${order.notes!.trim()}',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
-                ),
-                const SizedBox(height: 12),
 
-                // Order Items
-                ...order.items.map((item) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 24,
-                          height: 24,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            '${item.quantity}x',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            item.menuItemName,
-                            style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
-                          ),
-                        ),
-                        Text(
-                          '₹${item.subtotal.toStringAsFixed(0)}',
-                          style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
-                        ),
-                      ],
-                    ),
-                  );
-                }),
+                  const Divider(height: 20),
 
-                // Special Cooking Instructions Note
-                if (order.notes != null && order.notes!.trim().isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.amber.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.amber.shade200),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.edit_note, size: 18, color: Colors.amber.shade800),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            'Special Instructions: ${order.notes!.trim()}',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
-                          ),
-                        ),
-                      ],
-                    ),
+                  // Bottom Section: Time, Total & Responsive Actions
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Placed: $timeStr', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                      Text(
+                        'Total: ₹${order.totalAmount.toStringAsFixed(0)}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFFFF7A00)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: _buildStatusActionBtn(order, auth, orderService),
                   ),
                 ],
-
-                const Divider(height: 20),
-
-                // Bottom Row: Time, Total & Action
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Placed: $timeStr', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Total: ₹${order.totalAmount.toStringAsFixed(0)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                        ),
-                      ],
-                    ),
-                    _buildStatusActionBtn(order, auth, orderService),
-                  ],
-                ),
-              ],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

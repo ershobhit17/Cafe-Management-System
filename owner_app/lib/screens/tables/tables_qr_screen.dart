@@ -458,8 +458,10 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
               const SizedBox(height: 20),
 
               // ACTION BUTTONS: Print Standee, Open in Browser, Close
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 10,
+                runSpacing: 8,
                 children: [
                   OutlinedButton.icon(
                     onPressed: () => _launchWebUrl(qrUrl),
@@ -467,9 +469,9 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
                     label: const Text('Open in Browser'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.blueGrey.shade800,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     ),
                   ),
-                  const SizedBox(width: 10),
                   ElevatedButton.icon(
                     onPressed: () {
                       Navigator.pop(context);
@@ -480,6 +482,7 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFFF7A00),
                       foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     ),
                   ),
                 ],
@@ -508,10 +511,13 @@ class _TablesQrScreenState extends State<TablesQrScreen> {
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               cafeName,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
             ),
             const Text('Tables & QR Codes', style: TextStyle(fontSize: 12, color: Colors.grey)),
           ],
